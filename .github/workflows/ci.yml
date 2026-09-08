@@ -1,0 +1,75 @@
+name: ci
+
+# @ah-monica/browser と @ah-monica/react を検査する。PR と main への push で回す。
+#
+# 公開契約（spec/v1）は vendoring したコピーに対してオフラインで検査する。
+# 公開 URL との差分検査はここに付けない。fork からの pull_request には外部
+# 通信の前提が揃わず、付けると外部 PR が全部落ちる。差分検査と同期 PR は
+# spec-sync.yml が schedule で回す。
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    # webpack bundle、IIFE の runtime smoke、TypeScript 4.8 での型解決、
+    # 公開契約に対する契約テストをすべて含む（check:browser）。
+    name: Browser SDK bundles
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - run: bun install --frozen-lockfile
+
+      - name: tooling と公開契約のコピーを確認
+        run: bun run check:tooling && bun run check:spec
+
+      - name: Browser SDK を確認
+        run: bun run check:browser
+
+  react:
+    # peerDependencies の下限（18）と現行（19）で test を回す。
+    # bun add --no-save で差し替えるので lockfile は変えない。
+    name: React SDK / React ${{ matrix.react }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        react: ["18.3.1", "19.1.1"]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - run: bun install --frozen-lockfile
+
+      - name: React ${{ matrix.react }} へ差し替える
+        run: bun add --cwd react --no-save react@${{ matrix.react }} react-dom@${{ matrix.react }}
+
+      - name: React SDK を確認
+        run: bun run check:react

@@ -1,0 +1,126 @@
+name: spec sync
+
+# 公開契約バンドル（https://spec.monica.accelhack.net/v1/）と spec/v1/ のコピーの
+# 差分を見て、違えば取り込んだ状態で契約テストを回し、結果を本文に書いた PR を出す。
+#
+# 向きは「この repository から取りに行く」。逆向き（MONICA 本体から push）だと
+# private から public へ書き込む資格情報が要る。取りに行くなら GITHUB_TOKEN で済む。
+#
+# GITHUB_TOKEN が作った PR では再帰防止のため CI が起動しない。だから PR を
+# 出す前にこの job の中で bun run check を回し、結果を PR 本文に書く。
+# main へは直接 push しない。契約が締まる方向に変わったときは実装も直す
+# 必要があり、人が見る場所が要る。
+#
+# 必要な repository 設定: Settings → Actions → General →
+# 「Allow GitHub Actions to create and approve pull requests」を有効にする。
+
+on:
+  schedule:
+    # 毎日 09:00 JST
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: spec-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: 公開契約の差分を取り込む
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BRANCH: chore/spec-sync
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - run: bun install --frozen-lockfile
+
+      - name: 公開 URL から取り込む
+        id: sync
+        run: |
+          set -euo pipefail
+          bun run spec:sync | tee sync.log
+          if git diff --quiet -- spec; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 取り込んだコピーで契約テストを回す
+        if: steps.sync.outputs.changed == 'true'
+        id: check
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          bun run check 2>&1 | tee check.log
+
+      - name: PR を出す
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECK_OUTCOME: ${{ steps.check.outcome }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add spec
+          git commit -m "公開契約バンドルの変更を取り込む"
+          git push --force-with-lease=refs/heads/"$BRANCH" origin "$BRANCH" || git push --force origin "$BRANCH"
+
+          if [ "$CHECK_OUTCOME" = "success" ]; then
+            verdict="✅ 取り込んだコピーで \`bun run check\` が通った。追加だけの変更なら merge してよい。"
+          else
+            verdict="❌ 取り込んだコピーで \`bun run check\` が落ちた。契約が締まる方向に変わっている。実装を同じ PR で直す。"
+          fi
+          {
+            echo "公開契約バンドル（https://spec.monica.accelhack.net/v1/）が \`spec/v1/\` のコピーと違っていたので取り込んだ。"
+            echo
+            echo "## 差分"
+            echo
+            echo '```'
+            git diff --stat HEAD~1 -- spec
+            echo '```'
+            echo
+            echo "## 取り込み"
+            echo
+            echo '```'
+            cat sync.log
+            echo '```'
+            echo
+            echo "## 契約テスト"
+            echo
+            echo "$verdict"
+            echo
+            echo "<details><summary>bun run check の出力</summary>"
+            echo
+            echo '```'
+            tail -n 200 check.log
+            echo '```'
+            echo
+            echo "</details>"
+            echo
+            echo "GITHUB_TOKEN が作った PR では CI が起動しないので、結果はここに書いてある。"
+          } > body.md
+
+          existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body-file body.md
+          else
+            gh pr create --base main --head "$BRANCH" \
+              --title "公開契約バンドルの変更を取り込む" \
+              --body-file body.md
+          fi

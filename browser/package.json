@@ -1,0 +1,54 @@
+{
+  "name": "@ah-monica/browser",
+  "version": "0.1.1",
+  "description": "Browser SDK for sending JavaScript errors to MONICA",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "unpkg": "./dist/monica.min.js",
+  "jsdelivr": "./dist/monica.min.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./monica.min.js": "./dist/monica.min.js"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "bun run clean && tsc -p tsconfig.build.json && bun build ./dist/iife.js --outfile ./dist/monica.min.js --format=iife --minify",
+    "pack:check": "bun run build && bun pm pack --dry-run",
+    "test": "bun test",
+    "test:runtime": "bun run build && node test/runtime-smoke.mjs && webpack --config test/webpack/webpack.config.mjs",
+    "test:ts48": "bun run build && node node_modules/typescript-4-8/bin/tsc -p test/ts48/tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Accel-Hack/monica-sdk-browser.git",
+    "directory": "browser"
+  },
+  "dependencies": {
+    "@ah-monica/core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.21",
+    "typescript": "^5.9.2",
+    "typescript-4-8": "npm:typescript@4.8.4",
+    "webpack": "^5.101.3",
+    "webpack-cli": "^6.0.1",
+    "ajv": "^8.17.1"
+  }
+}
