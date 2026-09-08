@@ -6,6 +6,12 @@
 DSNにはbrowserへ公開してよい`mpk_...` keyだけを指定してください。secretの
 `msk_...` keyは初期化時に拒否します。
 
+## install
+
+```sh
+npm install @ah-monica/browser
+```
+
 ## ESM
 
 ```js
@@ -36,7 +42,7 @@ Monica.captureException(error)
     dsn: window.MONICA_DSN,
     environment: 'production',
     release: window.APP_RELEASE,
-    screenId: 'student-learning'
+    screenId: 'checkout'
   })
 </script>
 ```

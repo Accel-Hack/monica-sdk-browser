@@ -3,7 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { indexProblems, parseIndex, readLocalBundle, revisionOf, sha256Hex } from "./spec";
+import {
+  indexProblems,
+  isSafeBundlePath,
+  parseIndex,
+  readLocalBundle,
+  revisionMismatch,
+  revisionOf,
+  sha256Hex,
+} from "./spec";
 import {
   describeDiff,
   diffBundles,
@@ -195,6 +203,24 @@ describe("index", () => {
       JSON.stringify({ version: "v1", base: BASE, revision: revisionOf(entries), files: entries }),
     );
     expect(indexProblems(index, files)).toEqual(["index.json の files が path の byte 順に並んでいない"]);
+  });
+
+  test("revision が合わなくても各ファイルの sha256 が合えば取り込み、note に残す", async () => {
+    const served = bundleWithIndex(REQUIRED);
+    const index = JSON.parse(served["index.json"]!) as { revision: string };
+    index.revision = "f".repeat(64);
+    served["index.json"] = JSON.stringify(index);
+    const remote = await fetchRemoteBundle(fakeFetch(served), [], BASE);
+    expect(remote.files.size).toBe(6);
+    expect(remote.notes.join("\n")).toContain("revision が再計算と合わない");
+    expect(revisionMismatch(remote.index!)).toBeDefined();
+  });
+
+  test("URL の解釈が変わる文字を含む path は拒否する", () => {
+    expect(isSafeBundlePath("vectors/envelope/a.json")).toBe(true);
+    for (const path of ["a?b.json", "a#b.json", "a%2e%2e/b.json", "/abs.json", "a\\b.json", "../x", "a//b"]) {
+      expect(isSafeBundlePath(path), path).toBe(false);
+    }
   });
 
   test("形が違う索引は読まない", () => {

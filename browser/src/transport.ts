@@ -21,10 +21,14 @@ export function createBrowserTransport(options: BrowserTransportOptions): Monica
     throw new RangeError("maxRetries must be a non-negative integer");
   }
   const { endpoint, key } = parseDsn(options.dsn);
+  // 401 は鍵の不正・失効。契約上は「破棄し、以後の送信を止める」なので、
+  // 一度受けたら同じ鍵で送り続けない
+  let unauthorized = false;
 
   return {
     async send(envelope, outerSignal): Promise<TransportResult> {
       if (outerSignal?.aborted) return { accepted: false };
+      if (unauthorized) return { accepted: false, status: 401 };
       options.onSendingChange(true);
       try {
         const body = await gzipEnvelope(envelope);
@@ -48,6 +52,7 @@ export function createBrowserTransport(options: BrowserTransportOptions): Monica
               signal: controller.signal,
             });
             if (response.ok) return { accepted: true, status: response.status };
+            if (response.status === 401) unauthorized = true;
             if (response.status !== 429 && response.status < 500) {
               return { accepted: false, status: response.status };
             }
@@ -115,7 +120,8 @@ function retryAfterMilliseconds(value: string | null): number | undefined {
 }
 
 function backoff(attempt: number): number {
-  return Math.floor(Math.min(1_000 * 2 ** attempt, 10_000) * (0.5 + Math.random() * 0.5));
+  // 契約: min(1000 * 2^attempt, 30000) ms に 50〜100% の jitter
+  return Math.floor(Math.min(1_000 * 2 ** attempt, 30_000) * (0.5 + Math.random() * 0.5));
 }
 
 function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {

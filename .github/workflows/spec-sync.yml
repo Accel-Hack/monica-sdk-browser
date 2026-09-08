@@ -52,8 +52,11 @@ jobs:
         id: sync
         run: |
           set -euo pipefail
-          bun run spec:sync | tee sync.log
-          if git diff --quiet -- spec; then
+          bun run spec:sync | tee "$RUNNER_TEMP/sync.log"
+          # 追加されたファイル（index.json が配信され始めた日など）は untracked なので
+          # git diff では見えない。先に add して index で比べる
+          git add -A spec
+          if git diff --cached --quiet -- spec; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -65,7 +68,7 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          bun run check 2>&1 | tee check.log
+          bun run check 2>&1 | tee "$RUNNER_TEMP/check.log"
 
       - name: PR を出す
         if: steps.sync.outputs.changed == 'true'
@@ -77,9 +80,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$BRANCH"
-          git add spec
           git commit -m "公開契約バンドルの変更を取り込む"
-          git push --force-with-lease=refs/heads/"$BRANCH" origin "$BRANCH" || git push --force origin "$BRANCH"
+          # この branch はこの job だけが書く。前回の PR が残っていれば上書きする
+          git push --force origin "$BRANCH"
 
           if [ "$CHECK_OUTCOME" = "success" ]; then
             verdict="✅ 取り込んだコピーで \`bun run check\` が通った。追加だけの変更なら merge してよい。"
@@ -98,7 +101,7 @@ jobs:
             echo "## 取り込み"
             echo
             echo '```'
-            cat sync.log
+            cat "$RUNNER_TEMP/sync.log"
             echo '```'
             echo
             echo "## 契約テスト"
@@ -108,19 +111,19 @@ jobs:
             echo "<details><summary>bun run check の出力</summary>"
             echo
             echo '```'
-            tail -n 200 check.log
+            tail -n 200 "$RUNNER_TEMP/check.log"
             echo '```'
             echo
             echo "</details>"
             echo
             echo "GITHUB_TOKEN が作った PR では CI が起動しないので、結果はここに書いてある。"
-          } > body.md
+          } > "$RUNNER_TEMP/body.md"
 
           existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
           if [ -n "$existing" ]; then
-            gh pr edit "$existing" --body-file body.md
+            gh pr edit "$existing" --body-file "$RUNNER_TEMP/body.md"
           else
             gh pr create --base main --head "$BRANCH" \
               --title "公開契約バンドルの変更を取り込む" \
-              --body-file body.md
+              --body-file "$RUNNER_TEMP/body.md"
           fi

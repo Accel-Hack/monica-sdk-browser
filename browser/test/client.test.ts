@@ -38,7 +38,7 @@ describe("createBrowserClient", () => {
       dsn: "https://mpk_public@ingest.example.test/1",
       environment: "test",
       release: "abc123",
-      screenId: "student-learning",
+      screenId: "checkout",
       window: runtime,
       beforeSend(item) {
         captured = structuredClone(item);
@@ -51,7 +51,7 @@ describe("createBrowserClient", () => {
 
     expect(captured?.platform).toBe("javascript");
     expect(captured?.release).toBe("abc123");
-    expect(captured?.tags).toEqual({ "screen.id": "student-learning" });
+    expect(captured?.tags).toEqual({ "screen.id": "checkout" });
     expect(captured?.request).toEqual({
       url: "https://app.example.test",
       method: "GET",
@@ -217,7 +217,7 @@ describe("createBrowserClient", () => {
 
     const request = new runtime.XMLHttpRequest();
     Object.assign(request, { status: 500 });
-    request.open("POST", "https://api.example.test/students/private-id?access_token=secret");
+    request.open("POST", "https://api.example.test/accounts/private-id?access_token=secret");
     request.send();
     await client.captureMessage("after xhr");
     await client.flush();
@@ -271,7 +271,7 @@ describe("createBrowserClient", () => {
     expect(() => createBrowserClient({
       dsn: "https://mpk_public@ingest.example.test/1",
       environment: "test",
-      route: "/students/private?token=secret",
+      route: "/accounts/private?token=secret",
       window: createRuntime(),
     })).toThrow("route must be a path template");
   });

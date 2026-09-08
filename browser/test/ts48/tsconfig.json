@@ -5,7 +5,9 @@
     "moduleResolution": "node",
     "baseUrl": "../..",
     "paths": {
-      "@ah-monica/browser": ["dist/index.d.ts"],
+      // package ディレクトリへ向ける。TypeScript 4.8 が package.json の
+      // types / main を読んで解決できることまで確かめる
+      "@ah-monica/browser": ["."],
       "@ah-monica/core": [
         "node_modules/@ah-monica/core/dist/index.d.ts",
         "../node_modules/@ah-monica/core/dist/index.d.ts"

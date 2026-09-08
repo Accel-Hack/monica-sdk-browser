@@ -120,13 +120,15 @@ export function parseIndex(text: string): BundleIndex {
  */
 export function isSafeBundlePath(path: string): boolean {
   if (path.length === 0 || path.startsWith("/") || path.includes("\\")) return false;
+  // URL として解釈が変わる文字が入ると、取りに行く先と書き込む先がずれる
+  if (/[?#%]/.test(path)) return false;
   return path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
 
 /**
  * 索引と実体の整合。索引に無いファイルが混ざっている、索引にあるのに無い、
- * ダイジェストが違う、`files` の並びが byte 順でない、`revision` が再計算と
- * 合わない、のどれかがあれば人が読める文で返す。
+ * ダイジェストが違う、`files` の並びが byte 順でない、のどれかがあれば人が
+ * 読める文で返す。`revision` の再計算は `revisionMismatch` に分けてある。
  */
 export function indexProblems(index: BundleIndex, files: BundleFiles): string[] {
   const problems: string[] = [];
@@ -152,11 +154,21 @@ export function indexProblems(index: BundleIndex, files: BundleFiles): string[] 
   if (sorted.some((entry, position) => entry.path !== index.files[position]?.path)) {
     problems.push(`${INDEX_FILE} の files が path の byte 順に並んでいない`);
   }
-  const revision = revisionOf(index.files);
-  if (revision !== index.revision) {
-    problems.push(`${INDEX_FILE} の revision が再計算と合わない（索引 ${index.revision} / 再計算 ${revision}）`);
-  }
   return problems;
+}
+
+/**
+ * `revision` が手元の再計算と合わなければその旨を返す。
+ *
+ * 各ファイルの sha256 が合っていれば取り込んだ中身は正しいので、これは
+ * 取り込みを止める理由にはしない（note として出す）。revision の定義は
+ * 配信側がまだ出していない索引の仕様を先取りしたもので、定義が違っていた
+ * ときに取り込みが毎日落ち続けるより、警告が出て人が直す方がよい。
+ */
+export function revisionMismatch(index: BundleIndex): string | undefined {
+  const revision = revisionOf(index.files);
+  if (revision === index.revision) return undefined;
+  return `${INDEX_FILE} の revision が再計算と合わない（索引 ${index.revision} / 再計算 ${revision}）。revision の定義が変わったなら tooling/spec.ts の revisionOf を直す`;
 }
 
 /** ディスク上のコピー。キーは `BASE_URL` からの相対パス（常に `/` 区切り） */
@@ -166,10 +178,15 @@ export async function readLocalBundle(root: string = bundleRoot): Promise<Bundle
     let entries;
     try {
       entries = await readdir(directory, { withFileTypes: true });
-    } catch {
-      return;
+    } catch (error) {
+      // 無いのは「まだ取り込んでいない」なので空として返す。権限や I/O の
+      // 失敗まで空に見せると、原因が「取り込む」に化ける
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
     }
     for (const entry of entries) {
+      // .DS_Store のような OS のゴミはコピーの一部ではない
+      if (entry.name.startsWith(".")) continue;
       const path = join(directory, entry.name);
       if (entry.isDirectory()) await walk(path);
       else files.set(relative(root, path).split(sep).join("/"), new Uint8Array(await readFile(path)));

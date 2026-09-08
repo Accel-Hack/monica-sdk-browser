@@ -197,6 +197,48 @@ describe("browser SDK と公開契約", () => {
     expect(innerFrames.every((frame) => frame.filename.length > 0)).toBe(true);
     // payload.md: 実 pathname は載せず、明示した route template だけ
     expect(item.request).toEqual({ url: "https://app.example.test/orders/{orderId}", method: "GET" });
+    // page URL と XHR の URL に入っていた token が body のどこにも出ていない
+    expect(JSON.stringify(envelope)).not.toContain("token=");
+    await client.close();
+  });
+
+  test("空の fingerprint は載せない（schema は minItems: 1）", async () => {
+    const { sent, fetchImplementation } = recorder();
+    const client = createBrowserClient({
+      dsn: DSN,
+      environment: "test",
+      window: createRuntime(fetchImplementation),
+      maxRetries: 0,
+    });
+    await client.captureMessage("no fingerprint", "info", { fingerprint: [] });
+    await client.flush();
+    const envelope = await decodeEnvelope(sent[0]!);
+    expect(envelope.items[0]!).not.toHaveProperty("fingerprint");
+    expectValid(envelope);
+    await client.close();
+  });
+
+  test("DSN の鍵の種別と scheme は ingest.md のとおり", async () => {
+    const base = { environment: "test", window: createRuntime(recorder().fetchImplementation), maxRetries: 0 };
+    // secret key は browser へ配布してはいけない
+    expect(() => createBrowserClient({ ...base, dsn: "https://msk_secret@ingest.example.test/1" })).toThrow();
+    // https 以外は localhost / 127.0.0.1 に限る
+    expect(() => createBrowserClient({ ...base, dsn: "http://mpk_public@ingest.example.test/1" })).toThrow();
+    expect(() => createBrowserClient({ ...base, dsn: "http://mpk_public@localhost:8787/1" })).not.toThrow();
+    expect(() => createBrowserClient({ ...base, dsn: "http://mpk_public@127.0.0.1:8787/1" })).not.toThrow();
+
+    // password 部分は使わない。鍵は user info の username だけ
+    const { sent, fetchImplementation } = recorder();
+    const client = createBrowserClient({
+      dsn: "https://mpk_public:ignored-password@ingest.example.test/1",
+      environment: "test",
+      window: createRuntime(fetchImplementation),
+      maxRetries: 0,
+    });
+    await client.captureMessage("password ignored");
+    await client.flush();
+    expect(sent[0]!.headers.get("X-Monica-Key")).toBe("mpk_public");
+    expect(sent[0]!.url).toBe("https://ingest.example.test/v1/envelope");
     await client.close();
   });
 
@@ -238,7 +280,10 @@ describe("browser SDK と公開契約", () => {
     await client.close();
   });
 
-  test("limits.json の上限を envelope 側で守る", async () => {
+  test.each([
+    ["既定の設定", {}],
+    ["batchSize を上限より大きくしても", { batchSize: limits.items_per_envelope + 50 }],
+  ])("limits.json の上限を envelope 側で守る（%s）", async (_label, overrides) => {
     const { sent, fetchImplementation } = recorder();
     const client = createBrowserClient({
       dsn: DSN,
@@ -246,9 +291,9 @@ describe("browser SDK と公開契約", () => {
       window: createRuntime(fetchImplementation),
       maxRetries: 0,
       dedupeWindowMs: 0,
-      batchSize: limits.items_per_envelope,
       maxQueueSize: limits.items_per_envelope * 2,
       flushIntervalMs: 60_000,
+      ...overrides,
     });
 
     const deep = new Error("deep stack");
@@ -334,14 +379,26 @@ describe("browser transport とレスポンスの契約", () => {
     expect(calls).toHaveLength(1);
   });
 
-  test("400 / 401 / 422 は恒久的な失敗としてリトライしない", async () => {
-    for (const status of [400, 401, 422]) {
+  test("400 / 422 は恒久的な失敗としてリトライしない", async () => {
+    for (const status of [400, 422]) {
       const calls: number[] = [];
       const result = await transportWith([() => new Response(null, { status })], calls).send(envelope);
       expect(result).toEqual({ accepted: false, status });
       expect(calls, `status ${status}`).toHaveLength(1);
     }
   });
+
+  test("401 は破棄し、以後の送信を止める", async () => {
+    const calls: number[] = [];
+    const transport = transportWith([() => new Response(null, { status: 401 })], calls);
+    expect(await transport.send(envelope)).toEqual({ accepted: false, status: 401 });
+    expect(await transport.send(envelope)).toEqual({ accepted: false, status: 401 });
+    // 2 回目は request を出していない
+    expect(calls).toHaveLength(1);
+  });
+
+  // 以下は実時間で待つ。jitter の上振れを見込んで timeout を広げてある
+  const SLOW = { timeout: 20_000 };
 
   test("429 は Retry-After の整数秒だけ待ってから再送する", async () => {
     const calls: number[] = [];
@@ -355,9 +412,26 @@ describe("browser transport とレスポンスの契約", () => {
     expect(result).toEqual({ accepted: true, status: 202 });
     expect(calls).toHaveLength(2);
     expect(calls[1]! - calls[0]!).toBeGreaterThanOrEqual(950);
-  });
+  }, SLOW);
 
-  test("5xx とネットワーク障害は backoff してリトライし、上限で捨てる", async () => {
+  test("HTTP-date の Retry-After は解釈せず backoff に落とす", async () => {
+    const calls: number[] = [];
+    const result = await transportWith(
+      [
+        () => new Response(null, { status: 429, headers: { "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT" } }),
+        () => new Response(null, { status: 202 }),
+      ],
+      calls,
+    ).send(envelope);
+    expect(result).toEqual({ accepted: true, status: 202 });
+    expect(calls).toHaveLength(2);
+    // attempt 0 の backoff: 1000ms の 50〜100%
+    const waited = calls[1]! - calls[0]!;
+    expect(waited).toBeGreaterThanOrEqual(450);
+    expect(waited).toBeLessThan(1_500);
+  }, SLOW);
+
+  test("5xx は backoff してリトライし、上限で捨てる", async () => {
     const calls: number[] = [];
     const result = await transportWith([() => new Response(null, { status: 503 })], calls).send(envelope);
     expect(result).toEqual({ accepted: false, status: 503 });
@@ -366,7 +440,9 @@ describe("browser transport とレスポンスの契約", () => {
     // backoff は 1000 * 2^attempt に 50〜100% の jitter
     expect(calls[1]! - calls[0]!).toBeGreaterThanOrEqual(450);
     expect(calls[2]! - calls[1]!).toBeGreaterThanOrEqual(950);
+  }, SLOW);
 
+  test("ネットワーク障害はリトライする", async () => {
     const network: number[] = [];
     const failed = await transportWith(
       [() => new Error("network down"), () => new Response(null, { status: 202 })],
@@ -374,5 +450,5 @@ describe("browser transport とレスポンスの契約", () => {
     ).send(envelope);
     expect(failed).toEqual({ accepted: true, status: 202 });
     expect(network).toHaveLength(2);
-  });
+  }, SLOW);
 });

@@ -32,6 +32,7 @@ import {
   parseIndex,
   readLocalBundle,
   REQUIRED_FILES,
+  revisionMismatch,
   sha256Hex,
 } from "./spec";
 
@@ -95,6 +96,8 @@ export async function fetchRemoteBundle(
     if (problems.length > 0) {
       throw new Error(`取得したバンドルが索引と食い違う:\n${problems.map((p) => `- ${p}`).join("\n")}`);
     }
+    const mismatch = revisionMismatch(index);
+    if (mismatch) notes.push(mismatch);
     return { files: sortFiles(files), index, fallback: false, notes };
   }
   if (indexResponse.status !== 404) {
@@ -121,6 +124,8 @@ export async function fetchRemoteBundle(
     if (!files.has(required)) throw new Error(`${required}: 公開 URL に無い（HTTP 404）。取得先が正しいか確かめる`);
   }
   if (missing.length > 0) {
+    // 一時的な 404 でも「削除」として PR になる。索引が無いあいだは区別が
+    // つかないので、PR の差分を人が見て判断する
     notes.push(`公開 URL から消えていたので取り込みからも外す: ${missing.join(", ")}`);
   }
   return { files: sortFiles(files), fallback: true, notes };
@@ -192,7 +197,10 @@ export async function verifyLocalBundle(root: string = bundleRoot): Promise<stri
   const indexBytes = files.get(INDEX_FILE);
   if (indexBytes !== undefined) {
     try {
-      problems.push(...indexProblems(parseIndex(decode(indexBytes)), files));
+      const index = parseIndex(decode(indexBytes));
+      problems.push(...indexProblems(index, files));
+      const mismatch = revisionMismatch(index);
+      if (mismatch) console.warn(`warning: ${mismatch}`);
     } catch (error) {
       problems.push((error as Error).message);
     }

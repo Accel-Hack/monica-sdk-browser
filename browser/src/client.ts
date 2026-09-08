@@ -165,7 +165,7 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
       -maxBreadcrumbs,
     );
     const request = context.request ?? {
-      // Live paths, query strings and fragments may contain tokens or student
+      // Live paths, query strings and fragments may contain tokens or user
       // identifiers. Only an explicitly configured route template may add a path.
       url: pageUrl(runtime.location.href, route),
       method: "GET",
@@ -177,7 +177,8 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
       ...(Object.keys(contexts).length ? { contexts } : {}),
       ...(breadcrumbs.length ? { breadcrumbs } : {}),
       request,
-      ...(context.fingerprint ? { fingerprint: context.fingerprint } : {}),
+      // The contract requires a non-empty array; an empty one would be rejected.
+      ...(context.fingerprint?.length ? { fingerprint: context.fingerprint } : {}),
     };
   }
 

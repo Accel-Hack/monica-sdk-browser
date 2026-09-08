@@ -51,11 +51,14 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: tag・main・package version を検証
+        id: versions
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+          # annotated tag だと GITHUB_SHA は tag object を指すので commit へ剥がす
+          commit=$(git rev-parse "$GITHUB_REF_NAME^{commit}")
+          git merge-base --is-ancestor "$commit" origin/main || {
             echo "::error::npm release tag は main に含まれる commit へ付けてください。"
             exit 1
           }
@@ -74,13 +77,22 @@ jobs:
             echo "::error::browser=$browser_version react の browser 依存=$react_browser_version。version を一致させてください。"
             exit 1
           fi
-          # 公開 registry に既にある version は出し直せない
+          # 公開 registry に既にある version は出し直せない。browser だけ出て react で
+          # 落ちた tag を再実行できるよう、失敗ではなく package ごとの skip にする
+          both_published=true
           for pkg in browser react; do
             if npm view "@ah-monica/$pkg@$tag_version" version >/dev/null 2>&1; then
-              echo "::error::@ah-monica/$pkg@$tag_version は既に公開済みです。version を上げてください。"
-              exit 1
+              echo "::warning::@ah-monica/$pkg@$tag_version は既に公開済み。publish を飛ばします。"
+              echo "publish_$pkg=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "publish_$pkg=true" >> "$GITHUB_OUTPUT"
+              both_published=false
             fi
           done
+          if [ "$both_published" = true ]; then
+            echo "::error::2 package とも $tag_version は公開済みです。version を上げてください。"
+            exit 1
+          fi
 
       - name: package を検証
         run: bun run check
@@ -88,9 +100,11 @@ jobs:
       # 依存の順に公開し、参照する同 version を registry へ用意する。
       # id-token: write により npm CLI が OIDC を自動検出するため auth token は不要。
       - name: "@ah-monica/browser を公開"
+        if: steps.versions.outputs.publish_browser == 'true'
         working-directory: browser
         run: npm publish --access public
 
       - name: "@ah-monica/react を公開"
+        if: steps.versions.outputs.publish_react == 'true'
         working-directory: react
         run: npm publish --access public
