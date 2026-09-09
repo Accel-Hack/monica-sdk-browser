@@ -61,18 +61,12 @@ jobs:
             exit 1
           }
 
+          # version の正本は root の package.json。各 package との一致は
+          # bun run check（tooling/versions.test.ts）が見るので、ここは tag との一致だけ
           tag_version="${GITHUB_REF_NAME#v}"
-          browser_version=$(node -p "require('./browser/package.json').version")
-          react_version=$(node -p "require('./react/package.json').version")
-          react_browser_version=$(node -p "require('./react/package.json').dependencies['@ah-monica/browser']")
-          if [[ "$tag_version" != "$browser_version" || "$tag_version" != "$react_version" ]]; then
-            echo "::error::tag=$tag_version browser=$browser_version react=$react_version。version を一致させてください。"
-            exit 1
-          fi
-          # react の @ah-monica/browser は workspace:* ではなく実 version を書く。
-          # publish される package.json にそのまま入るので、ここで一致を見る。
-          if [[ "$react_browser_version" != "$browser_version" ]]; then
-            echo "::error::browser=$browser_version react の browser 依存=$react_browser_version。version を一致させてください。"
+          root_version=$(node -p "require('./package.json').version")
+          if [[ "$tag_version" != "$root_version" ]]; then
+            echo "::error::tag=$tag_version package.json=$root_version。bun run version:set $tag_version で揃えてください。"
             exit 1
           fi
           # 公開 registry に既にある version は出し直せない。browser だけ出て react で
