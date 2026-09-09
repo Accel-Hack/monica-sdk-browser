@@ -11,7 +11,7 @@
  *
  * 差分検査（--check）は pull_request には付けない。fork からの PR には外部
  * 通信の前提が揃わず、付けると外部 PR が全部落ちる。契約テストは手元の
- * コピーだけで完結させ、差分検査は schedule の job（spec-sync.yml）が回す。
+ * コピーだけで完結させ、差分検査は spec-sync.yml（workflow_dispatch）が回す。
  *
  * 取り込みは索引（index.json）から始める。索引が 404 のときだけ、手元の
  * コピーにあるファイルと REQUIRED_FILES を取りに行く。このモードでは上流に

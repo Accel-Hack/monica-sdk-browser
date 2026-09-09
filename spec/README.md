@@ -28,7 +28,7 @@ bun run check:spec          # オフライン。手元のコピーの整合だ�
 そのまま通る。
 
 公開 URL との差分検査は `pull_request` に付けない。`.github/workflows/spec-sync.yml`
-が schedule で取りに行き、違えば取り込んだ状態で `bun run check` を回し、結果を
+を手で起動して取りに行き、違えば取り込んだ状態で `bun run check` を回し、結果を
 本文に書いた PR を出す。`GITHUB_TOKEN` が作った PR では CI が起動しないので、
 検査結果は PR 本文で読む。
 

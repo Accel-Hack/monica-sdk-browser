@@ -2,6 +2,7 @@ name: spec sync
 
 # 公開契約バンドル（https://spec.monica.accelhack.net/v1/）と spec/v1/ のコピーの
 # 差分を見て、違えば取り込んだ状態で契約テストを回し、結果を本文に書いた PR を出す。
+# 公開契約が変わったと分かったときに workflow_dispatch で起動する。
 #
 # 向きは「この repository から取りに行く」。逆向き（MONICA 本体から push）だと
 # private から public へ書き込む資格情報が要る。取りに行くなら GITHUB_TOKEN で済む。
@@ -14,10 +15,8 @@ name: spec sync
 # 必要な repository 設定: Settings → Actions → General →
 # 「Allow GitHub Actions to create and approve pull requests」を有効にする。
 
+# 手で起動する。定期実行はしない。
 on:
-  schedule:
-    # 毎日 09:00 JST
-    - cron: "0 0 * * *"
   workflow_dispatch:
 
 concurrency:
