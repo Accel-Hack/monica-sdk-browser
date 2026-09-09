@@ -34,7 +34,8 @@ MONICA へ送る envelope の形、上限、Ingest API の叩き方は
 そのコピーに対してオフラインで走る。
 
 - `browser/test/contract.test.ts` — browser SDK が実際に送る request（gzip した
-  envelope、ヘッダ、送信先、リトライ）が契約のとおりか
+  envelope、ヘッダ、送信先、リトライ）が契約のとおりか。定数は `transport.json` から
+  読み、テストに写さない
 - `tooling/spec-bundle.test.ts` — コピー自体の整合。test vectors を公開 JSON Schema
   で回す
 

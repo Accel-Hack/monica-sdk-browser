@@ -48,6 +48,47 @@ describe("vendoring した公開契約", () => {
     );
   });
 
+  test("index.json が手元の全ファイルを列挙している", () => {
+    const index = json("index.json") as { files: Array<{ path: string }> };
+    const listed = index.files.map((entry) => entry.path).sort();
+    const actual = [...files.keys()].filter((path) => path !== "index.json").sort();
+    expect(listed).toEqual(actual);
+  });
+
+  test("transport.json は browser SDK が分岐する status と定数を持つ", () => {
+    const transport = json("transport.json") as {
+      endpoint: { method: string; path: string; content_type: string; content_encoding: string };
+      auth: Array<{ kind: string; key_prefix: string; header: string; value: string }>;
+      status: Record<string, string>;
+      retry: { retry_after: { max_seconds: number }; backoff: { base_ms: number; factor: number; max_ms: number } };
+    };
+    expect(transport.endpoint).toEqual({
+      method: "POST",
+      path: "/v1/envelope",
+      content_type: "application/json",
+      content_encoding: "gzip",
+    });
+    // browser が使う public key の行があること
+    expect(transport.auth.find((entry) => entry.kind === "public")).toEqual({
+      kind: "public",
+      key_prefix: "mpk_",
+      header: "X-Monica-Key",
+      value: "<key>",
+    });
+    for (const status of ["202", "400", "401", "422", "429", "5xx"]) {
+      expect(typeof transport.status[status], status).toBe("string");
+    }
+    expect(transport.retry.retry_after.max_seconds).toBeGreaterThan(0);
+    expect(transport.retry.backoff.max_ms).toBeGreaterThanOrEqual(transport.retry.backoff.base_ms);
+  });
+
+  test("error.json は 422 の issues を持つ error body の JSON Schema", () => {
+    const schema = json("error.json") as { $schema: string; required: string[]; $defs: Record<string, unknown> };
+    expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
+    expect(schema.required).toEqual(["error"]);
+    expect(schema.$defs).toHaveProperty("validationIssue");
+  });
+
   test("limits.json は正の整数の上限だけを持つ", () => {
     const limits = json("limits.json") as Record<string, unknown>;
     for (const key of [

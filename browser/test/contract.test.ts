@@ -38,6 +38,20 @@ type Limits = {
   frames_per_stacktrace: number;
 };
 
+/** transport.json。HTTP 契約の機械可読な形。定数はここから読み、テストに写さない */
+type Transport = {
+  endpoint: { method: string; path: string; content_type: string; content_encoding: string };
+  dsn: { insecure_hosts: string[] };
+  auth: Array<{ kind: "secret" | "public"; key_prefix: string; header: string; value: string }>;
+  status: Record<string, string>;
+  retry: {
+    retryable_statuses: string[];
+    retry_on_network_error: boolean;
+    retry_after: { integer_seconds_only: boolean; max_seconds: number };
+    backoff: { base_ms: number; factor: number; max_ms: number; jitter_min: number; jitter_max: number };
+  };
+};
+
 type Envelope = {
   sdk: { name: string; version: string };
   sent_at: string;
@@ -46,11 +60,34 @@ type Envelope = {
 };
 
 const limits = await spec<Limits>("limits.json");
+const transport = await spec<Transport>("transport.json");
+const publicAuth = transport.auth.find((entry) => entry.kind === "public");
+if (!publicAuth) throw new Error("transport.json に public key の行が無い");
+
+/**
+ * status → SDK の挙動。個別のコードが無ければ `5xx` のような範囲を引く
+ * （ingest.md の読み方のとおり）
+ */
+function actionFor(status: number): string {
+  const exact = transport.status[String(status)];
+  if (exact !== undefined) return exact;
+  const range = transport.status[`${Math.floor(status / 100)}xx`];
+  if (range === undefined) throw new Error(`transport.json に ${status} の挙動が無い`);
+  return range;
+}
+
+/** backoff の下限。jitter_min を掛けた値より短く待ってはいけない */
+function minimumBackoff(attempt: number): number {
+  const { base_ms, factor, max_ms, jitter_min } = transport.retry.backoff;
+  return Math.min(base_ms * factor ** attempt, max_ms) * jitter_min;
+}
+
 // format は検査しない（配信側の検査と同じ）。schema は形までで、暦の正しさは MONICA 側が弾く
 const ajv = new Ajv2020({ strict: false, validateFormats: false, allErrors: true });
 const validateEnvelope: ValidateFunction = ajv.compile(await spec<object>("envelope.json"));
 
-const DSN = "https://mpk_public_key@ingest.example.test/some/path/42?ignored=1#frag";
+const KEY = `${publicAuth.key_prefix}public_key`;
+const DSN = `https://${KEY}@ingest.example.test/some/path/42?ignored=1#frag`;
 
 class FakeXmlHttpRequest extends EventTarget {
   status = 200;
@@ -93,7 +130,7 @@ function expectValid(envelope: unknown): void {
 }
 
 describe("browser SDK と公開契約", () => {
-  test("送信先・ヘッダ・鍵の種別が ingest.md のとおり", async () => {
+  test("送信先・ヘッダ・鍵の種別が transport.json のとおり", async () => {
     const { sent, fetchImplementation } = recorder();
     const client = createBrowserClient({
       dsn: DSN,
@@ -106,14 +143,16 @@ describe("browser SDK と公開契約", () => {
 
     expect(sent).toHaveLength(1);
     const request = sent[0]!;
-    expect(request.method).toBe("POST");
-    // DSN の origin に /v1/envelope を付けたもの。パス・クエリ・フラグメントは捨てる
-    expect(request.url).toBe("https://ingest.example.test/v1/envelope");
-    expect(request.headers.get("Content-Type")).toBe("application/json");
-    expect(request.headers.get("Content-Encoding")).toBe("gzip");
-    // browser は public key。ヘッダは X-Monica-Key で、Authorization は使わない
-    expect(request.headers.get("X-Monica-Key")).toBe("mpk_public_key");
-    expect(request.headers.get("Authorization")).toBeNull();
+    expect(request.method).toBe(transport.endpoint.method);
+    // DSN の origin に endpoint.path を付けたもの。パス・クエリ・フラグメントは捨てる
+    expect(request.url).toBe(`https://ingest.example.test${transport.endpoint.path}`);
+    expect(request.headers.get("Content-Type")).toBe(transport.endpoint.content_type);
+    expect(request.headers.get("Content-Encoding")).toBe(transport.endpoint.content_encoding);
+    // browser は public key。ヘッダは transport.json の public の行。secret の行は使わない
+    expect(request.headers.get(publicAuth.header)).toBe(publicAuth.value.replace("<key>", KEY));
+    for (const entry of transport.auth) {
+      if (entry.kind !== "public") expect(request.headers.get(entry.header)).toBeNull();
+    }
     // 1 リクエスト = 1 envelope の JSON を gzip したもの
     const envelope = await decodeEnvelope(request);
     expect(envelope.items).toHaveLength(1);
@@ -218,27 +257,32 @@ describe("browser SDK と公開契約", () => {
     await client.close();
   });
 
-  test("DSN の鍵の種別と scheme は ingest.md のとおり", async () => {
+  test("DSN の鍵の種別と scheme は transport.json のとおり", async () => {
     const base = { environment: "test", window: createRuntime(recorder().fetchImplementation), maxRetries: 0 };
     // secret key は browser へ配布してはいけない
-    expect(() => createBrowserClient({ ...base, dsn: "https://msk_secret@ingest.example.test/1" })).toThrow();
-    // https 以外は localhost / 127.0.0.1 に限る
-    expect(() => createBrowserClient({ ...base, dsn: "http://mpk_public@ingest.example.test/1" })).toThrow();
-    expect(() => createBrowserClient({ ...base, dsn: "http://mpk_public@localhost:8787/1" })).not.toThrow();
-    expect(() => createBrowserClient({ ...base, dsn: "http://mpk_public@127.0.0.1:8787/1" })).not.toThrow();
+    for (const entry of transport.auth) {
+      if (entry.kind === "secret") {
+        expect(() => createBrowserClient({ ...base, dsn: `https://${entry.key_prefix}secret@ingest.example.test/1` })).toThrow();
+      }
+    }
+    // https 以外は insecure_hosts に限る
+    expect(() => createBrowserClient({ ...base, dsn: `http://${KEY}@ingest.example.test/1` })).toThrow();
+    for (const host of transport.dsn.insecure_hosts) {
+      expect(() => createBrowserClient({ ...base, dsn: `http://${KEY}@${host}:8787/1` }), host).not.toThrow();
+    }
 
     // password 部分は使わない。鍵は user info の username だけ
     const { sent, fetchImplementation } = recorder();
     const client = createBrowserClient({
-      dsn: "https://mpk_public:ignored-password@ingest.example.test/1",
+      dsn: `https://${KEY}:ignored-password@ingest.example.test/1`,
       environment: "test",
       window: createRuntime(fetchImplementation),
       maxRetries: 0,
     });
     await client.captureMessage("password ignored");
     await client.flush();
-    expect(sent[0]!.headers.get("X-Monica-Key")).toBe("mpk_public");
-    expect(sent[0]!.url).toBe("https://ingest.example.test/v1/envelope");
+    expect(sent[0]!.headers.get(publicAuth.header)).toBe(KEY);
+    expect(sent[0]!.url).toBe(`https://ingest.example.test${transport.endpoint.path}`);
     await client.close();
   });
 
@@ -372,15 +416,35 @@ describe("browser transport とレスポンスの契約", () => {
     });
   }
 
-  test("202 は受理としてキューから除く", async () => {
-    const calls: number[] = [];
-    const result = await transportWith([() => new Response(null, { status: 202 })], calls).send(envelope);
-    expect(result).toEqual({ accepted: true, status: 202 });
-    expect(calls).toHaveLength(1);
+  test("transport.json の status ごとの挙動を browser が分岐できる語彙で持っている", () => {
+    // 語彙が増えるのは互換。消える・変わるのは破壊的変更で、ここで気付く
+    const known = new Set(["accept", "drop", "drop_and_stop", "split_and_retry", "wait_retry_after", "backoff"]);
+    for (const [status, action] of Object.entries(transport.status)) {
+      expect(known.has(action), `${status}: ${action}`).toBe(true);
+    }
+    expect(actionFor(202)).toBe("accept");
+    expect(actionFor(503)).toBe("backoff");
   });
 
-  test("400 / 422 は恒久的な失敗としてリトライしない", async () => {
-    for (const status of [400, 422]) {
+  test("accept は受理としてキューから除く", async () => {
+    const accepted = Object.entries(transport.status)
+      .filter(([, action]) => action === "accept")
+      .map(([status]) => Number(status));
+    expect(accepted.length).toBeGreaterThan(0);
+    for (const status of accepted) {
+      const calls: number[] = [];
+      const result = await transportWith([() => new Response(null, { status })], calls).send(envelope);
+      expect(result).toEqual({ accepted: true, status });
+      expect(calls).toHaveLength(1);
+    }
+  });
+
+  test("drop は恒久的な失敗としてリトライしない", async () => {
+    const dropped = Object.entries(transport.status)
+      .filter(([, action]) => action === "drop")
+      .map(([status]) => Number(status));
+    expect(dropped.length).toBeGreaterThan(0);
+    for (const status of dropped) {
       const calls: number[] = [];
       const result = await transportWith([() => new Response(null, { status })], calls).send(envelope);
       expect(result).toEqual({ accepted: false, status });
@@ -388,19 +452,27 @@ describe("browser transport とレスポンスの契約", () => {
     }
   });
 
-  test("401 は破棄し、以後の送信を止める", async () => {
-    const calls: number[] = [];
-    const transport = transportWith([() => new Response(null, { status: 401 })], calls);
-    expect(await transport.send(envelope)).toEqual({ accepted: false, status: 401 });
-    expect(await transport.send(envelope)).toEqual({ accepted: false, status: 401 });
-    // 2 回目は request を出していない
-    expect(calls).toHaveLength(1);
+  test("drop_and_stop は破棄し、以後の送信を止める", async () => {
+    const stopping = Object.entries(transport.status)
+      .filter(([, action]) => action === "drop_and_stop")
+      .map(([status]) => Number(status));
+    expect(stopping.length).toBeGreaterThan(0);
+    for (const status of stopping) {
+      const calls: number[] = [];
+      const client = transportWith([() => new Response(null, { status })], calls);
+      expect(await client.send(envelope)).toEqual({ accepted: false, status });
+      expect(await client.send(envelope)).toEqual({ accepted: false, status });
+      // 2 回目は request を出していない
+      expect(calls, `status ${status}`).toHaveLength(1);
+    }
   });
 
   // 以下は実時間で待つ。jitter の上振れを見込んで timeout を広げてある
   const SLOW = { timeout: 20_000 };
 
-  test("429 は Retry-After の整数秒だけ待ってから再送する", async () => {
+  test("wait_retry_after は Retry-After の整数秒だけ待ってから再送する", async () => {
+    expect(actionFor(429)).toBe("wait_retry_after");
+    expect(transport.retry.retryable_statuses).toContain("429");
     const calls: number[] = [];
     const result = await transportWith(
       [
@@ -414,7 +486,8 @@ describe("browser transport とレスポンスの契約", () => {
     expect(calls[1]! - calls[0]!).toBeGreaterThanOrEqual(950);
   }, SLOW);
 
-  test("HTTP-date の Retry-After は解釈せず backoff に落とす", async () => {
+  test("HTTP-date の Retry-After は解釈せず backoff に落とす（integer_seconds_only）", async () => {
+    expect(transport.retry.retry_after.integer_seconds_only).toBe(true);
     const calls: number[] = [];
     const result = await transportWith(
       [
@@ -425,24 +498,26 @@ describe("browser transport とレスポンスの契約", () => {
     ).send(envelope);
     expect(result).toEqual({ accepted: true, status: 202 });
     expect(calls).toHaveLength(2);
-    // attempt 0 の backoff: 1000ms の 50〜100%
+    // attempt 0 の backoff の範囲に収まる（HTTP-date を秒として読んでいない）
     const waited = calls[1]! - calls[0]!;
-    expect(waited).toBeGreaterThanOrEqual(450);
-    expect(waited).toBeLessThan(1_500);
+    expect(waited).toBeGreaterThanOrEqual(minimumBackoff(0) - 50);
+    expect(waited).toBeLessThan(transport.retry.backoff.base_ms * transport.retry.backoff.jitter_max + 500);
   }, SLOW);
 
-  test("5xx は backoff してリトライし、上限で捨てる", async () => {
+  test("backoff は base_ms * factor^attempt に jitter を掛けて待ち、上限で捨てる", async () => {
+    expect(actionFor(503)).toBe("backoff");
+    expect(transport.retry.retryable_statuses).toContain("5xx");
     const calls: number[] = [];
     const result = await transportWith([() => new Response(null, { status: 503 })], calls).send(envelope);
     expect(result).toEqual({ accepted: false, status: 503 });
     // maxRetries: 2 なので 3 回で止まる。無限に溜めない
     expect(calls).toHaveLength(3);
-    // backoff は 1000 * 2^attempt に 50〜100% の jitter
-    expect(calls[1]! - calls[0]!).toBeGreaterThanOrEqual(450);
-    expect(calls[2]! - calls[1]!).toBeGreaterThanOrEqual(950);
+    expect(calls[1]! - calls[0]!).toBeGreaterThanOrEqual(minimumBackoff(0) - 50);
+    expect(calls[2]! - calls[1]!).toBeGreaterThanOrEqual(minimumBackoff(1) - 50);
   }, SLOW);
 
-  test("ネットワーク障害はリトライする", async () => {
+  test("ネットワーク障害はリトライする（retry_on_network_error）", async () => {
+    expect(transport.retry.retry_on_network_error).toBe(true);
     const network: number[] = [];
     const failed = await transportWith(
       [() => new Error("network down"), () => new Response(null, { status: 202 })],

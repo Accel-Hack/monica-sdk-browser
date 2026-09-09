@@ -13,9 +13,9 @@
  * 通信の前提が揃わず、付けると外部 PR が全部落ちる。契約テストは手元の
  * コピーだけで完結させ、差分検査は schedule の job（spec-sync.yml）が回す。
  *
- * 取り込みは索引（index.json）から始める。索引が配信されていない（404）
- * うちは、手元のコピーにあるファイルと REQUIRED_FILES を取りに行く。この
- * モードでは上流にファイルが増えたことは検知できないので、その旨を出す。
+ * 取り込みは索引（index.json）から始める。索引が 404 のときだけ、手元の
+ * コピーにあるファイルと REQUIRED_FILES を取りに行く。このモードでは上流に
+ * ファイルが増えたことは検知できないので、その旨を出す。
  */
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -105,7 +105,7 @@ export async function fetchRemoteBundle(
   }
 
   notes.push(
-    `${INDEX_FILE} はまだ配信されていない（404）。手元のファイル一覧を取りに行った。` +
+    `${INDEX_FILE} が 404。手元のファイル一覧を取りに行った。` +
       "上流にファイルが増えてもこのモードでは検知できない",
   );
   const paths = new Set<string>([...localPaths].filter((path) => path !== INDEX_FILE));

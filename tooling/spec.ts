@@ -24,19 +24,22 @@ export const bundleRoot = join(import.meta.dir, "..", "spec", VERSION);
 
 /**
  * 索引。バンドル内の全ファイルのパスとダイジェスト、全体の指紋（`revision`）
- * を持つ。配信側がこれを出すようになれば、ファイルの列挙も整合性の検査も
- * ここから始める。まだ配信されていない場合（404）は無くてよい。
+ * を持つ。ファイルの列挙も整合性の検査もここから始める。配信が止まって
+ * 404 になったときだけ、手元の一覧で取りに行く。
  */
 export const INDEX_FILE = "index.json";
 
 /**
- * 索引が無くても必ずあるはずのファイル。索引が配信される前の取り込みで
- * 「何を取りに行くか」の最低限と、契約テストが前提にするものの一致を見る。
+ * 契約テストが前提にするファイル。索引が無くても必ず取りに行く最低限でも
+ * ある。ここに足したら、それを読むテストも足す（読まれないファイルを
+ * 必須にしない）。
  */
 export const REQUIRED_FILES = [
   "README.md",
   "envelope.json",
+  "error.json",
   "limits.json",
+  "transport.json",
   "ingest.md",
   "payload.md",
 ] as const;

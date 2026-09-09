@@ -49,7 +49,9 @@ function bundleWithIndex(files: Served): Served {
 const REQUIRED: Served = {
   "README.md": "# contract\n",
   "envelope.json": '{"type":"object"}\n',
+  "error.json": '{"type":"object"}\n',
   "limits.json": '{"items_per_envelope":100}\n',
+  "transport.json": '{"status":{}}\n',
   "ingest.md": "# ingest\n",
   "payload.md": "# payload\n",
 };
@@ -75,13 +77,15 @@ describe("fetchRemoteBundle", () => {
     expect(remote.index?.files.map((entry) => entry.path)).toEqual([
       "README.md",
       "envelope.json",
+      "error.json",
       "ingest.md",
       "limits.json",
       "payload.md",
+      "transport.json",
       "vectors/envelope/a.json",
     ]);
     expect([...remote.files.keys()]).toContain("index.json");
-    expect(remote.files.size).toBe(7);
+    expect(remote.files.size).toBe(9);
     // 手元の一覧は使わず、索引だけで列挙している
     expect(seen[0]).toBe(`${BASE}index.json`);
     expect(remote.notes).toEqual([]);
@@ -113,12 +117,14 @@ describe("fetchRemoteBundle", () => {
     expect([...remote.files.keys()]).toEqual([
       "README.md",
       "envelope.json",
+      "error.json",
       "ingest.md",
       "limits.json",
       "payload.md",
+      "transport.json",
       "vectors/envelope/a.json",
     ]);
-    expect(remote.notes.join("\n")).toContain("index.json はまだ配信されていない");
+    expect(remote.notes.join("\n")).toContain("index.json が 404");
     expect(remote.notes.join("\n")).toContain("vectors/envelope/gone.json");
   });
 
@@ -211,7 +217,7 @@ describe("index", () => {
     index.revision = "f".repeat(64);
     served["index.json"] = JSON.stringify(index);
     const remote = await fetchRemoteBundle(fakeFetch(served), [], BASE);
-    expect(remote.files.size).toBe(6);
+    expect(remote.files.size).toBe(8);
     expect(remote.notes.join("\n")).toContain("revision が再計算と合わない");
     expect(revisionMismatch(remote.index!)).toBeDefined();
   });
