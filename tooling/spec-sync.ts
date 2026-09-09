@@ -6,12 +6,11 @@
  *     bun run check:spec           オフライン。手元のコピーの整合だけを見る
  *
  * 向きは「SDK repository 側から取りに行く」。MONICA 本体は private で、
- * そこから public repository へ push するには書き込み資格情報が要る。取りに
- * 行く側なら repository 自身の GITHUB_TOKEN だけで済む。
+ * そこから public repository へ push するには書き込み資格情報が要る。
  *
- * 差分検査（--check）は pull_request には付けない。fork からの PR には外部
- * 通信の前提が揃わず、付けると外部 PR が全部落ちる。契約テストは手元の
- * コピーだけで完結させ、差分検査は spec-sync.yml（workflow_dispatch）が回す。
+ * CI は公開 URL に出ない（--verify だけ）。fork からの PR には外部通信の
+ * 前提が揃わず、差分検査を付けると外部 PR が全部落ちる。公開契約が変わったら
+ * 手元で spec:sync を実行し、spec/v1/ の差分を PR にする。
  *
  * 取り込みは索引（index.json）から始める。索引が 404 のときだけ、手元の
  * コピーにあるファイルと REQUIRED_FILES を取りに行く。このモードでは上流に

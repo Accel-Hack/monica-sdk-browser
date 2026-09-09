@@ -39,7 +39,8 @@ MONICA へ送る envelope の形、上限、Ingest API の叩き方は
 - `tooling/spec-bundle.test.ts` — コピー自体の整合。test vectors を公開 JSON Schema
   で回す
 
-コピーの更新は [`spec/README.md`](spec/README.md)。
+公開契約が変わったら `bun run spec:sync` で取り込み、差分を PR にする。詳細は
+[`spec/README.md`](spec/README.md)。
 
 ## release
 

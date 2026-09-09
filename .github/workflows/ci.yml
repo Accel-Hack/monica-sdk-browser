@@ -4,8 +4,8 @@ name: ci
 #
 # 公開契約（spec/v1）は vendoring したコピーに対してオフラインで検査する。
 # 公開 URL との差分検査はここに付けない。fork からの pull_request には外部
-# 通信の前提が揃わず、付けると外部 PR が全部落ちる。差分検査と同期 PR は
-# spec-sync.yml（workflow_dispatch）が回す。
+# 通信の前提が揃わず、付けると外部 PR が全部落ちる。コピーの更新は手元で
+# bun run spec:sync して PR にする。
 
 on:
   pull_request:

@@ -25,12 +25,10 @@ bun run check:spec          # オフライン。手元のコピーの整合だ�
 
 契約テスト（`browser/test/contract.test.ts`、`tooling/spec-bundle.test.ts`）は
 このコピーに対して**オフライン**で走る。だから fork からの PR も手元の clone も
-そのまま通る。
+そのまま通る。CI は公開 URL には出ない。
 
-公開 URL との差分検査は `pull_request` に付けない。`.github/workflows/spec-sync.yml`
-を手で起動して取りに行き、違えば取り込んだ状態で `bun run check` を回し、結果を
-本文に書いた PR を出す。`GITHUB_TOKEN` が作った PR では CI が起動しないので、
-検査結果は PR 本文で読む。
+公開契約が変わったら、手元で `bun run spec:sync` して `spec/v1/` の差分を PR に
+する。契約が締まる方向の変更なら契約テストが落ちるので、実装も同じ PR で直す。
 
 ## 取り込みは index.json から始める
 
