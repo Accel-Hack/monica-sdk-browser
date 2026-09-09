@@ -1,0 +1,102 @@
+name: npm release
+
+# browser と react の package.json を同じ version に更新して main へ merge した後、
+# その commit へ v0.1.1 のような tag を付けると npm へ公開する。
+#
+# 移設元の monorepo は npm と Maven の release が同居していたので npm-v* /
+# maven-v* で振り分けていた。この repository は npm しか出さないので v* でよい。
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+# npm Trusted Publishing が GitHub の OIDC token を発行するために必要。
+# NPM_TOKEN などの長期 publish token は使わない。
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: "@ah-monica/browser と @ah-monica/react を公開"
+    if: github.repository == 'Accel-Hack/monica-sdk-browser'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      # Trusted Publishing には npm 11.5.1 以上が必要。
+      - name: Trusted Publishing 対応の npm を準備
+        run: npm install --global npm@11.19.1
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: 依存関係を固定 lockfile から復元
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: tag・main・package version を検証
+        id: versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          # annotated tag だと GITHUB_SHA は tag object を指すので commit へ剥がす
+          commit=$(git rev-parse "$GITHUB_REF_NAME^{commit}")
+          git merge-base --is-ancestor "$commit" origin/main || {
+            echo "::error::release tag は main に含まれる commit へ付けてください。"
+            exit 1
+          }
+
+          # version の正本は root の package.json。各 package との一致は
+          # bun run check（tooling/versions.test.ts）が見るので、ここは tag との一致だけ
+          tag_version="${GITHUB_REF_NAME#v}"
+          root_version=$(node -p "require('./package.json').version")
+          if [[ "$tag_version" != "$root_version" ]]; then
+            echo "::error::tag=$tag_version package.json=$root_version。bun run version:set $tag_version で揃えてください。"
+            exit 1
+          fi
+          # 公開 registry に既にある version は出し直せない。browser だけ出て react で
+          # 落ちた tag を再実行できるよう、失敗ではなく package ごとの skip にする
+          both_published=true
+          for pkg in browser react; do
+            if npm view "@ah-monica/$pkg@$tag_version" version >/dev/null 2>&1; then
+              echo "::warning::@ah-monica/$pkg@$tag_version は既に公開済み。publish を飛ばします。"
+              echo "publish_$pkg=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "publish_$pkg=true" >> "$GITHUB_OUTPUT"
+              both_published=false
+            fi
+          done
+          if [ "$both_published" = true ]; then
+            echo "::error::2 package とも $tag_version は公開済みです。version を上げてください。"
+            exit 1
+          fi
+
+      - name: package を検証
+        run: bun run check
+
+      # 依存の順に公開し、参照する同 version を registry へ用意する。
+      # id-token: write により npm CLI が OIDC を自動検出するため auth token は不要。
+      - name: "@ah-monica/browser を公開"
+        if: steps.versions.outputs.publish_browser == 'true'
+        working-directory: browser
+        run: npm publish --access public
+
+      - name: "@ah-monica/react を公開"
+        if: steps.versions.outputs.publish_react == 'true'
+        working-directory: react
+        run: npm publish --access public

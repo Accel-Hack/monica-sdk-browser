@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "baseUrl": "../..",
+    "paths": {
+      // package ディレクトリへ向ける。TypeScript 4.8 が package.json の
+      // types / main を読んで解決できることまで確かめる
+      "@ah-monica/browser": ["."],
+      "@ah-monica/core": [
+        "node_modules/@ah-monica/core/dist/index.d.ts",
+        "../node_modules/@ah-monica/core/dist/index.d.ts"
+      ]
+    },
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": false,
+    "types": []
+  },
+  "files": ["index.ts"]
+}

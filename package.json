@@ -1,0 +1,25 @@
+{
+  "name": "monica-sdk-browser",
+  "version": "0.1.1",
+  "private": true,
+  "packageManager": "bun@1.3.13",
+  "workspaces": [
+    "browser",
+    "react"
+  ],
+  "scripts": {
+    "check": "bun run check:tooling && bun run check:spec && bun run check:browser && bun run check:react",
+    "check:tooling": "tsc -p tooling/tsconfig.json && bun test tooling",
+    "check:spec": "bun run tooling/spec-sync.ts --verify",
+    "check:browser": "bun run --filter @ah-monica/browser typecheck && bun run --filter @ah-monica/browser test && bun run --filter @ah-monica/browser pack:check && bun run --filter @ah-monica/browser test:runtime && bun run --filter @ah-monica/browser test:ts48",
+    "check:react": "bun run --filter @ah-monica/react typecheck && bun run --filter @ah-monica/react test && bun run --filter @ah-monica/react pack:check",
+    "spec:sync": "bun run tooling/spec-sync.ts",
+    "spec:check-remote": "bun run tooling/spec-sync.ts --check",
+    "version:set": "bun run tooling/set-version.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.21",
+    "ajv": "^8.17.1",
+    "typescript": "^5.9.2"
+  }
+}
