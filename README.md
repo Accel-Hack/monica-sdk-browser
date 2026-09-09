@@ -47,7 +47,7 @@ MONICA へ送る envelope の形、上限、Ingest API の叩き方は
 1. `browser/package.json` と `react/package.json` の `version`、`react` の
    `@ah-monica/browser` 依存、`browser/src/client.ts` の `sdk.version` を同じ値に上げて
    main へ merge する（`sdk.version` が package.json と食い違うと契約テストが落ちる）
-2. その commit へ `npm-vX.Y.Z` tag を付けて push する
+2. その commit へ `vX.Y.Z` tag を付けて push する
 
 `.github/workflows/npm-release.yml` が tag と version の一致を検査し、
 `bun run check` を通してから `browser` → `react` の順に npm へ公開する。

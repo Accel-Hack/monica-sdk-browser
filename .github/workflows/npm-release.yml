@@ -1,16 +1,14 @@
 name: npm release
 
 # browser と react の package.json を同じ version に更新して main へ merge した後、
-# その commit へ npm-v0.1.1 のような tag を付けると npm へ公開する。
+# その commit へ v0.1.1 のような tag を付けると npm へ公開する。
 #
-# tag の接頭辞は npm-v* のまま。tag は repository ごとに独立していて、この
-# workflow はこの repository の tag しか見ないので、monica-sdk-js と同じ接頭辞
-# でも衝突しない。「どの repository の release か」は tag が付いている
-# repository で分かる。
+# 移設元の monorepo は npm と Maven の release が同居していたので npm-v* /
+# maven-v* で振り分けていた。この repository は npm しか出さないので v* でよい。
 on:
   push:
     tags:
-      - "npm-v*"
+      - "v*"
 
 concurrency:
   group: npm-release
@@ -59,11 +57,11 @@ jobs:
           # annotated tag だと GITHUB_SHA は tag object を指すので commit へ剥がす
           commit=$(git rev-parse "$GITHUB_REF_NAME^{commit}")
           git merge-base --is-ancestor "$commit" origin/main || {
-            echo "::error::npm release tag は main に含まれる commit へ付けてください。"
+            echo "::error::release tag は main に含まれる commit へ付けてください。"
             exit 1
           }
 
-          tag_version="${GITHUB_REF_NAME#npm-v}"
+          tag_version="${GITHUB_REF_NAME#v}"
           browser_version=$(node -p "require('./browser/package.json').version")
           react_version=$(node -p "require('./react/package.json').version")
           react_browser_version=$(node -p "require('./react/package.json').dependencies['@ah-monica/browser']")
