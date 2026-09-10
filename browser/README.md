@@ -69,29 +69,19 @@ allowlist方式により除去してください。
 
 ## 送信が拒否されたとき
 
-MONICAがenvelopeのschema違反で`422`を返すと、SDKはそのenvelopeを破棄します。
-その際に返ってくるerror bodyには、直すべきfieldのpath（`$.items[0].request.method`
-など）が入っています。SDKはこれを**既定で`console.warn`へ出します**。
+`422`（envelope schema 不正）と`401`（keyの不正・失効）は既定で`console.warn`に出ます。
+`422`はそのenvelopeを破棄し、`401`は破棄して以後の送信を止めます（警告は1回だけ）。
 
 ```text
 monica: ingest rejected the envelope with 422 (invalid_envelope): 1 issue(s); $.items[0].request.method: Invalid type: Expected string
-```
-
-書式はMONICAの全SDKで同じ1行です（サポートで文面から検索できるようにしています）。
-
-`beforeSend`でeventをallowlist方式に組み替える場合、必須のkeyを落とすと
-この状態になります（`request`は任意ですが、載せるなら`method`は必須）。
-1件も送信できていないことに気付けるよう、警告は既定で出します。
-
-`401`（keyの不正・失効）を受けたときは、そのenvelopeを破棄して**以後の送信を止めます**。
-黙って止まると気付けないので、こちらも既定で1回だけ警告します。
-
-```text
 monica: ingest rejected the envelope with 401 (unauthorized); no further envelopes will be sent
 ```
 
-警告経路は`onDiagnostic`で差し替えられます。`null`または`false`で無効化します。
-差し替えた場合は`429`以外の4xxすべてが届きます（既定の`console.warn`は`422`と`401`だけ）。
+`422`の`issues`のpathは修正すべきfieldを指します。上の例なら`beforeSend`が
+`request.method`を落としているので、`beforeSend`を直します。
+
+警告経路は`onDiagnostic`で差し替え、`null`または`false`で無効化します（既定は未指定＝
+`console.warn`）。差し替えた場合は`429`以外の4xxすべてが届きます。
 
 ```js
 Monica.init({
@@ -104,11 +94,10 @@ Monica.init({
 })
 ```
 
-`flush()` / `close()`の戻り値からも読めます。既存のfieldはそのままで、
-拒否があったときだけ`diagnostics`が増えます（取り出すと控えは空になります）。
-`diagnostics`に入るのは**前回取り出して以降の未報告分**で、tabが隠れたときの
-自動flushで拒否されたぶんも含みます（その`flush()`の送信だけとは限りません）。
-控えは20件を超えると古い方から捨てます。
+`flush()` / `close()`の戻り値の`diagnostics`からも読めます。既存のfieldはそのままで、
+拒否があったときだけ増えます。入るのは前回取り出して以降の未報告分（tabが隠れたときの
+自動flushで拒否されたぶんも含む）で、取り出すと空になります。控えは20件を超えると
+古い方から捨てます。
 
 ```js
 const result = await Monica.flush()
@@ -117,6 +106,10 @@ for (const diagnostic of result.diagnostics ?? []) {
 }
 ```
 
-statusごとの扱いは変わりません。`400`は破棄してリトライせず、`401`は破棄して
-以後の送信を止め、`429`と`5xx`はリトライします。error bodyは`429`以外の4xxでだけ
-読み、上限（64 KiB）を超える場合や形が違う場合は`issues`無しの破棄として扱います。
+statusごとの扱い:
+
+- `400` / `422`: 破棄。リトライしない
+- `401`: 破棄。以後そのclientからは送らない
+- `429` / `5xx`: リトライする
+- error bodyを読むのは`429`以外の4xxだけ。上限は64 KiBで、超える場合や形が違う場合は
+  `issues`無しの破棄として扱う
