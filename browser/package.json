@@ -42,7 +42,7 @@
     "directory": "browser"
   },
   "dependencies": {
-    "@ah-monica/core": "^0.1.0"
+    "@ah-monica/core": "^0.1.2"
   },
   "devDependencies": {
     "@types/bun": "^1.2.21",
