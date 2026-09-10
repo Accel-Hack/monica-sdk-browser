@@ -74,16 +74,24 @@ MONICAがenvelopeのschema違反で`422`を返すと、SDKはそのenvelopeを�
 など）が入っています。SDKはこれを**既定で`console.warn`へ出します**。
 
 ```text
-monica: ingest rejected the envelope with 422 (invalid_envelope): 1 issue(s)
- - $.items[0].request.method: Invalid type: Expected string
+monica: ingest rejected the envelope with 422 (invalid_envelope): 1 issue(s); $.items[0].request.method: Invalid type: Expected string
 ```
+
+書式はMONICAの全SDKで同じ1行です（サポートで文面から検索できるようにしています）。
 
 `beforeSend`でeventをallowlist方式に組み替える場合、必須のkeyを落とすと
 この状態になります（`request`は任意ですが、載せるなら`method`は必須）。
 1件も送信できていないことに気付けるよう、警告は既定で出します。
 
+`401`（keyの不正・失効）を受けたときは、そのenvelopeを破棄して**以後の送信を止めます**。
+黙って止まると気付けないので、こちらも既定で1回だけ警告します。
+
+```text
+monica: ingest rejected the envelope with 401 (unauthorized); no further envelopes will be sent
+```
+
 警告経路は`onDiagnostic`で差し替えられます。`null`または`false`で無効化します。
-差し替えた場合は`429`以外の4xxすべてが届きます（既定の`console.warn`は`422`だけ）。
+差し替えた場合は`429`以外の4xxすべてが届きます（既定の`console.warn`は`422`と`401`だけ）。
 
 ```js
 Monica.init({
@@ -106,6 +114,6 @@ for (const diagnostic of result.diagnostics ?? []) {
 }
 ```
 
-`422`以外のstatusの扱いは変わりません。`400`は破棄してリトライせず、`401`は破棄して
+statusごとの扱いは変わりません。`400`は破棄してリトライせず、`401`は破棄して
 以後の送信を止め、`429`と`5xx`はリトライします。error bodyは`429`以外の4xxでだけ
 読み、上限（64 KiB）を超える場合や形が違う場合は`issues`無しの破棄として扱います。

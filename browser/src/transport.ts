@@ -44,6 +44,8 @@ export function createBrowserTransport(options: BrowserTransportOptions): Browse
   // 401 は鍵の不正・失効。契約上は「破棄し、以後の送信を止める」なので、
   // 一度受けたら同じ鍵で送り続けない
   let unauthorized = false;
+  // 停止したことは 1 回だけ伝える。同時に走った送信が両方 401 を受けても繰り返さない
+  let stopWarned = false;
   const pending: BrowserTransportResult[] = [];
 
   /**
@@ -58,8 +60,13 @@ export function createBrowserTransport(options: BrowserTransportOptions): Browse
     if (handler === null || handler === false) return;
     try {
       if (handler) handler(diagnostic);
-      // 既定は 422 だけ。422 は payload を直せる情報なので既定オフにしない
+      // 既定の対象は 422（payload を直せる path が返る）と 401（以後送らないので
+      // 黙って止まると気付けない）。どちらも既定オフにしない
       else if (diagnostic.status === 422) warnRejection(diagnostic);
+      else if (diagnostic.status === 401 && !stopWarned) {
+        stopWarned = true;
+        warnStopped(diagnostic);
+      }
     } catch {
       // 利用者の handler が投げても送信経路は壊さない
     }
@@ -243,12 +250,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * API key と envelope 本体は出さない（出すのは status / code / message / path）。
  */
 function warnRejection(diagnostic: BrowserTransportResult): void {
-  if (typeof console === "undefined" || typeof console.warn !== "function") return;
   const issues = diagnostic.issues ?? [];
+  const head = `${rejectionPrefix(diagnostic)}: ${issues.length} issue(s)`;
+  // 1 行にまとめる。SDK 横断で同じ文面にして、サポートで検索できるようにしている
+  warn([head, ...issues.map((issue) => `${issue.path}: ${issue.message}`)].join("; "));
+}
+
+/** 401 は破棄して以後送らない。黙って止まると「送れていない」ことに気付けない */
+function warnStopped(diagnostic: BrowserTransportResult): void {
+  warn(`${rejectionPrefix(diagnostic)}; no further envelopes will be sent`);
+}
+
+function rejectionPrefix(diagnostic: BrowserTransportResult): string {
   const code = diagnostic.error?.code ?? "unknown";
-  const head =
-    `monica: ingest rejected the envelope with ${diagnostic.status} (${code}): ${issues.length} issue(s)`;
-  console.warn(head + issues.map((issue) => `\n - ${issue.path}: ${issue.message}`).join(""));
+  return `monica: ingest rejected the envelope with ${diagnostic.status} (${code})`;
+}
+
+function warn(message: string): void {
+  if (typeof console === "undefined" || typeof console.warn !== "function") return;
+  console.warn(message);
 }
 
 function retryAfterMilliseconds(value: string | null): number | undefined {

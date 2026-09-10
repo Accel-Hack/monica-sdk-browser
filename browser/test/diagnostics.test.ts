@@ -125,13 +125,12 @@ describe("422 の診断", () => {
       { path: "$.items[0].level", message: "Invalid enum value" },
     ]);
 
-    // 1 envelope につき 1 回。書式は SDK 横断で揃えている
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain(
-      "monica: ingest rejected the envelope with 422 (invalid_envelope): 2 issue(s)",
-    );
-    expect(warnings[0]).toContain("$.items[0].request.method: Invalid type: Expected string");
-    expect(warnings[0]).toContain("$.items[0].level: Invalid enum value");
+    // 1 envelope につき 1 回。書式は SDK 横断で 1 行に揃えている（文面で検索できるように）
+    expect(warnings).toEqual([
+      "monica: ingest rejected the envelope with 422 (invalid_envelope): 2 issue(s)"
+      + "; $.items[0].request.method: Invalid type: Expected string"
+      + "; $.items[0].level: Invalid enum value",
+    ]);
     // 鍵は出さない
     expect(warnings[0]).not.toContain("mpk_public");
   });
@@ -143,10 +142,9 @@ describe("422 の診断", () => {
 
     expect(result.issues).toBeUndefined();
     expect(result.error?.code).toBe("invalid_envelope");
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain(
+    expect(warnings).toEqual([
       "monica: ingest rejected the envelope with 422 (invalid_envelope): 0 issue(s)",
-    );
+    ]);
   });
 
   test("path / message が string でない issue は捨てる", async () => {
@@ -284,15 +282,40 @@ describe("422 以外の status の挙動は変えない", () => {
     expect(received).toEqual([400]);
   });
 
-  test("401 は破棄し、以後の送信をしない", async () => {
+  test("401 は破棄し、以後の送信をしない。止めたことを 1 回だけ警告する", async () => {
     const body = JSON.stringify({ error: { code: "unauthorized", message: "bad key" } });
     const { transport, responses } = createTransport({ status: 401, body, maxRetries: 2 });
     const { warnings } = await captureWarnings(async () => {
-      expect((await transport.send(envelope)).status).toBe(401);
+      const first = await transport.send(envelope);
+      expect(first.status).toBe(401);
+      expect(first.error).toEqual({ code: "unauthorized", message: "bad key" });
       expect(await transport.send(envelope)).toEqual({ accepted: false, status: 401 });
     });
     // 2 回目は request を出していない
     expect(responses).toHaveLength(1);
+    // 黙って止まると気付けないので既定で 1 行出す。2 回目の send では繰り返さない
+    expect(warnings).toEqual([
+      "monica: ingest rejected the envelope with 401 (unauthorized); no further envelopes will be sent",
+    ]);
+  });
+
+  test("error body の読めない 401 でも停止を伝える", async () => {
+    const { transport } = createTransport({ status: 401, body: null });
+    const { warnings } = await captureWarnings(() => transport.send(envelope));
+    expect(warnings).toEqual([
+      "monica: ingest rejected the envelope with 401 (unknown); no further envelopes will be sent",
+    ]);
+  });
+
+  test("401 も onDiagnostic に差し替えられる", async () => {
+    const received: Array<number | undefined> = [];
+    const { transport } = createTransport({
+      status: 401,
+      body: null,
+      onDiagnostic: (diagnostic) => received.push(diagnostic.status),
+    });
+    const { warnings } = await captureWarnings(() => transport.send(envelope));
+    expect(received).toEqual([401]);
     expect(warnings).toEqual([]);
   });
 
