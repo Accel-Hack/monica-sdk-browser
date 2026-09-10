@@ -9,7 +9,12 @@ import { describe, expect, test } from "bun:test";
 import type { FetchLike, MonicaEnvelope } from "@ah-monica/core";
 import { createBrowserClient } from "../src/index.js";
 import { createBrowserTransport, type BrowserTransport } from "../src/transport.js";
-import type { BrowserClientOptions, BrowserDiagnosticHandler } from "../src/types.js";
+import type {
+  BrowserClientOptions,
+  BrowserDiagnosticHandler,
+  BrowserTransportResult,
+  MonicaIngestIssue,
+} from "../src/types.js";
 
 const DSN = "https://mpk_public@ingest.example.test/1";
 
@@ -177,12 +182,66 @@ describe("422 の診断", () => {
     const { transport } = createTransport({ body });
     const { result, warnings } = await captureWarnings(() => transport.send(envelope));
 
-    expect(result.accepted).toBeFalse();
-    expect(result.status).toBe(422);
+    // 形が違えば error も issues も採らない。上限判定や型ガードを外すと
+    // ここが落ちる（`(unknown)` のまま出ることまで固定する）
+    expect(result).toEqual({ accepted: false, status: 422 });
+    expect(result.error).toBeUndefined();
     expect(result.issues).toBeUndefined();
     // 読めなくても「422 で破棄した」ことは伝える
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("monica: ingest rejected the envelope with 422");
+    expect(warnings).toEqual([
+      "monica: ingest rejected the envelope with 422 (unknown): 0 issue(s)",
+    ]);
+  });
+
+  test("凍結してあるので handler が書き換えても flush() で読む値は変わらない", async () => {
+    // handler の中で assert すると report の catch に飲まれるので、外で見る
+    const received: BrowserTransportResult[] = [];
+    const client = createClient(422, INVALID_ENVELOPE, {
+      onDiagnostic: (diagnostic) => received.push(diagnostic),
+    });
+    await client.captureMessage("frozen");
+    const result = await client.flush();
+
+    expect(received).toHaveLength(1);
+    const diagnostic = received[0]!;
+    // handler へ渡すものと控え・戻り値は同じ実体。利用者が触っても壊せない
+    expect(diagnostic).toBe(result.diagnostics?.[0]!);
+    expect(() => {
+      (diagnostic as { status?: number }).status = 999;
+    }).toThrow();
+    expect(() => (diagnostic.issues as MonicaIngestIssue[]).pop()).toThrow();
+    expect(diagnostic.status).toBe(422);
+    expect(diagnostic.issues).toHaveLength(2);
+    await client.close();
+  });
+
+  test("控えは 20 件で打ち切り、古い方から捨てる", async () => {
+    let attempt = 0;
+    const transport = createBrowserTransport({
+      dsn: DSN,
+      fetch: async () => {
+        attempt += 1;
+        return new Response(
+          JSON.stringify({ error: { code: `rejected_${attempt}`, message: "bad" } }),
+          { status: 422 },
+        );
+      },
+      requestTimeoutMs: 2_000,
+      maxRetries: 0,
+      onSendingChange() {},
+      onDiagnostic: null,
+    });
+
+    for (let i = 0; i < 23; i += 1) await transport.send(envelope);
+    const diagnostics = transport.takeDiagnostics();
+
+    // flush() を呼ばない利用者でも溜め続けない
+    expect(diagnostics).toHaveLength(20);
+    // 残っているのは新しい 20 件（1〜3 件目は捨てている）
+    expect(diagnostics.map((diagnostic) => diagnostic.error?.code)).toEqual(
+      Array.from({ length: 20 }, (_, index) => `rejected_${index + 4}`),
+    );
+    expect(transport.takeDiagnostics()).toEqual([]);
   });
 
   test("onDiagnostic で差し替えでき、null / false で止まる", async () => {
@@ -304,6 +363,21 @@ describe("422 以外の status の挙動は変えない", () => {
     const { warnings } = await captureWarnings(() => transport.send(envelope));
     expect(warnings).toEqual([
       "monica: ingest rejected the envelope with 401 (unknown); no further envelopes will be sent",
+    ]);
+  });
+
+  test("同時に走った 2 本が両方 401 を受けても警告は 1 回", async () => {
+    const body = JSON.stringify({ error: { code: "unauthorized", message: "bad key" } });
+    const { transport, responses } = createTransport({ status: 401, body });
+    const { result, warnings } = await captureWarnings(() =>
+      // 2 本目の send は 1 本目の応答より先に始まるので、停止 flag では止まらない
+      Promise.all([transport.send(envelope), transport.send(envelope)]),
+    );
+
+    expect(responses).toHaveLength(2);
+    expect(result.map((entry) => entry.status)).toEqual([401, 401]);
+    expect(warnings).toEqual([
+      "monica: ingest rejected the envelope with 401 (unauthorized); no further envelopes will be sent",
     ]);
   });
 

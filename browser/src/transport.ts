@@ -178,21 +178,32 @@ async function gzipEnvelope(envelope: MonicaEnvelope): Promise<ArrayBuffer> {
 async function describeRejection(response: Response): Promise<BrowserTransportResult> {
   const result: BrowserTransportResult = { accepted: false, status: response.status };
   try {
-    const text = await readLimitedText(response);
-    if (text === undefined || text === "") return result;
-    const parsed: unknown = JSON.parse(text);
-    if (!isRecord(parsed)) return result;
-    const error = parsed.error;
-    if (!isRecord(error)) return result;
-    if (typeof error.code === "string" && typeof error.message === "string") {
-      result.error = { code: error.code, message: error.message };
-    }
-    const issues = Array.isArray(error.issues) ? collectIssues(error.issues) : [];
-    if (issues.length > 0) result.issues = issues;
+    await fillFromErrorBody(response, result);
   } catch {
     // body が途中で切れても、JSON でなくても、破棄という結論は変わらない
   }
-  return result;
+  // handler へ渡すものと控え・戻り値は同じ実体。利用者の handler が書き換えても
+  // 後から flush() で読む値が変わらないように凍結する
+  if (result.error) Object.freeze(result.error);
+  if (result.issues) {
+    for (const issue of result.issues) Object.freeze(issue);
+    Object.freeze(result.issues);
+  }
+  return Object.freeze(result);
+}
+
+async function fillFromErrorBody(response: Response, result: BrowserTransportResult): Promise<void> {
+  const text = await readLimitedText(response);
+  if (text === undefined || text === "") return;
+  const parsed: unknown = JSON.parse(text);
+  if (!isRecord(parsed)) return;
+  const error = parsed.error;
+  if (!isRecord(error)) return;
+  if (typeof error.code === "string" && typeof error.message === "string") {
+    result.error = { code: error.code, message: error.message };
+  }
+  const issues = Array.isArray(error.issues) ? collectIssues(error.issues) : [];
+  if (issues.length > 0) result.issues = issues;
 }
 
 /** path / message が string でない要素は捨てる */

@@ -106,6 +106,9 @@ Monica.init({
 
 `flush()` / `close()`の戻り値からも読めます。既存のfieldはそのままで、
 拒否があったときだけ`diagnostics`が増えます（取り出すと控えは空になります）。
+`diagnostics`に入るのは**前回取り出して以降の未報告分**で、tabが隠れたときの
+自動flushで拒否されたぶんも含みます（その`flush()`の送信だけとは限りません）。
+控えは20件を超えると古い方から捨てます。
 
 ```js
 const result = await Monica.flush()
