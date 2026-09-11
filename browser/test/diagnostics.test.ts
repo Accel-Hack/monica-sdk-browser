@@ -426,3 +426,35 @@ describe("422 以外の status の挙動は変えない", () => {
     expect(transport.takeDiagnostics()).toEqual([]);
   });
 });
+
+describe("401 は client ごと止める（core 0.2.0）", () => {
+  // transport は 0.1.2 の頃から同じ鍵で二度と POST しなかったが、client は動き
+  // 続け、capture を受け付けては捨てていた。core 0.2.0 が status 401 を見て
+  // client を閉じるようになったので、利用者から「止まった」ことが分かる。
+  const REVOKED = JSON.stringify({ error: { code: "unauthorized", message: "key revoked" } });
+
+  test("flush が stopped を立て、以後の capture が null になる", async () => {
+    const client = createClient(401, REVOKED, { onDiagnostic: null });
+    await client.captureMessage("before");
+    const flushed = await client.flush();
+
+    expect(flushed.stopped).toBeTrue();
+    expect(flushed.status).toBe(401);
+    // queue に残っていた分は送る先が無いので捨てた分として勘定する
+    expect(flushed.discarded).toBe(1);
+    expect(flushed.remaining).toBe(0);
+    // 閉じたあとは event id を返さない。呼び出し側は「記録された」と誤解しない
+    expect(await client.captureMessage("after")).toBeNull();
+    await client.close();
+  });
+
+  test("422 では止めない（drop であって drop_and_stop ではない）", async () => {
+    const client = createClient(422, INVALID_ENVELOPE, { onDiagnostic: null });
+    await client.captureMessage("before");
+    const flushed = await client.flush();
+
+    expect(flushed.stopped).toBeUndefined();
+    expect(await client.captureMessage("after")).not.toBeNull();
+    await client.close();
+  });
+});

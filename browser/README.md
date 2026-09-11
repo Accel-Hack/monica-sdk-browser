@@ -109,7 +109,10 @@ for (const diagnostic of result.diagnostics ?? []) {
 statusごとの扱い:
 
 - `400` / `422`: 破棄。リトライしない
-- `401`: 破棄。以後そのclientからは送らない
+- `401`: 破棄。以後そのclientからは送らない。clientは閉じ、以後の
+  `captureException()` / `captureMessage()`は`null`を返す。queueに残っていた分は
+  `discarded`に勘定する。止まったことは`flush()`の`stopped`で分かる。送信を再開するには
+  正しいkeyでclientを組み直す
 - `429` / `5xx`: リトライする
 - error bodyを読むのは`429`以外の4xxだけ。上限は64 KiBで、超える場合や形が違う場合は
   `issues`無しの破棄として扱う
