@@ -1,129 +1,166 @@
 # @ah-monica/browser
 
-素のJavaScriptを含むbrowser application向けのMONICA SDKです。npm向けESMと、
-`<script>`で読めるIIFE版を同じpackageから配布します。
+素の JavaScript を含む browser アプリ向けの MONICA SDK。npm 向けの ESM と、
+`<script>` で読める IIFE 版を同じ package で配布する。
 
-DSNにはbrowserへ公開してよい`mpk_...` keyだけを指定してください。secretの
-`msk_...` keyは初期化時に拒否します。
+## 対応環境
 
-## install
+`fetch` / `CompressionStream` / `AbortController` / `crypto.randomUUID` のある
+browser。型定義は TypeScript 4.8 以降で解決できる。
+
+## インストール
 
 ```sh
 npm install @ah-monica/browser
 ```
 
-## ESM
+bundler を使わない場合は package 内の `dist/monica.min.js` を配信するか、CDN から
+version を固定して読む。読み込むとグローバルに `Monica` が生える。
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@ah-monica/browser@0.2.0/dist/monica.min.js"></script>
+```
+
+## 初期化
 
 ```js
-import * as Monica from '@ah-monica/browser'
+import * as Monica from "@ah-monica/browser";
 
 Monica.init({
   dsn: window.MONICA_DSN,
-  environment: 'production',
+  environment: "production",
   release: window.APP_RELEASE,
-  screenId: 'admin-users',
-  route: '/admin/users/{id}', // 実pathnameではなく、安全なtemplateだけを明示
+  screenId: "admin-users",
+  route: "/admin/users/{id}", // 実 pathname ではなく、安全な template だけを明示
   beforeSend(event) {
-    delete event.user
-    if (event.request) delete event.request.headers
-    return event
+    delete event.user;
+    if (event.request) delete event.request.headers;
+    return event;
   },
-})
-
-Monica.captureException(error)
+});
 ```
 
-## script tag
+DSN の key には browser へ公開してよい public key（`mpk_` 始まり）だけを指定する。
+secret key（`msk_` 始まり）、key の無い DSN、`https` 以外の DSN（`localhost` と
+`127.0.0.1` の `http` だけ例外）は `init()` が `TypeError` を投げる。
+
+`<script>` 版も同じ options を取る。
 
 ```html
-<script src="/vendor/monica.min.js"></script>
 <script>
   Monica.init({
     dsn: window.MONICA_DSN,
-    environment: 'production',
-    release: window.APP_RELEASE,
-    screenId: 'checkout'
-  })
+    environment: "production",
+    screenId: "checkout",
+  });
 </script>
 ```
 
-IIFEはpackage内の`dist/monica.min.js`です。CDNから使う場合もversionを固定してください。
-
-## 収集範囲
-
-- `window.onerror`と`unhandledrejection`を自動収集
-- 手動の`captureException()` / `captureMessage()`
-- status 0または400以上のXMLHttpRequestをbreadcrumbへ記録（既定はoriginのみ）
-- originだけのpage URL、`screen.id` tag、release
-- 同じerrorを既定1秒の窓で重複排除
-- 送信中のerrorと送信失敗を自動収集へ戻さない
-
-`console.error`収集は既定OFFです。有効化する場合だけ
-`captureConsoleErrors: true`を指定します。userは自動検出せず、
-`setUser()`を明示的に呼んだ場合だけeventへ含めます。request body、Cookie、
-Authorizationは自動収集しません。アプリケーション固有のPIIは`beforeSend`で
-allowlist方式により除去してください。
-
-現在のpathnameはtokenや個人識別子を含み得るため自動収集しません。診断にrouteが必要な場合は、
-`route: '/form/follow/{token}'`のように実値を含まないtemplateを明示してください。
-
-## 送信が拒否されたとき
-
-既定で`console.warn`に出るのは`422`（envelope schema 不正）、`401`（keyの不正・失効）、
-`413`（経路上のサイズ上限）の3つです。`422`はそのenvelopeを破棄し、`401`は破棄して以後の
-送信を止めます。`401`と`413`は1回だけ出します。
-
-```text
-monica: ingest rejected the envelope with 422 (invalid_envelope): 1 issue(s); $.items[0].request.method: Invalid type: Expected string
-monica: ingest rejected the envelope with 401 (unauthorized); no further envelopes will be sent
-monica: ingest rejected the envelope with 413 (unknown); splitting and resending. A size limit on the path may be below the 1 MiB (gzip) contract
-```
-
-`422`の`issues`のpathは修正すべきfieldを指します。上の例なら`beforeSend`が
-`request.method`を落としているので、`beforeSend`を直します。
-
-警告経路は`onDiagnostic`で差し替え、`null`または`false`で無効化します（既定は未指定＝
-`console.warn`）。差し替えた場合は`429`以外の4xxすべてが届きます。
+## 使い方
 
 ```js
-Monica.init({
-  dsn: window.MONICA_DSN,
-  environment: 'production',
-  onDiagnostic(diagnostic) {
-    // diagnostic: { status, issues, error?: { code, message }, message }
-    // message は既定の警告と同じ1行。core と同じ文面なのでSDK横断で検索できる
-    myLogger.warn(diagnostic.message, diagnostic.status, diagnostic.issues)
-  },
-})
+Monica.captureException(error);
+Monica.captureMessage("checkout retried", "warning");
+
+Monica.setUser({ id: "opaque-user-id" }); // null で解除
+Monica.addBreadcrumb({ category: "ui", message: "submit clicked" });
+
+Monica.withScope((scope) => {
+  scope.setTag("feature", "checkout");
+  scope.setContext("cart", { items: 3 });
+  Monica.captureException(error);
+});
+
+await Monica.flush();  // 既定 2000 ms 待つ
+await Monica.close();  // 自動収集を外して送り切る
 ```
 
-`flush()` / `close()`の戻り値の`diagnostics`からも読めます。既存のfieldはそのままで、
-拒否があったときだけ増えます。入るのは前回取り出して以降の未報告分（tabが隠れたときの
-自動flushで拒否されたぶんも含む）で、取り出すと空になります。控えは20件を超えると
-古い方から捨てます。
+`captureException()` / `captureMessage()` は event id を返す（送らなかった場合は
+`null`）。第 2 引数（`captureMessage()` は第 3 引数）で `level` / `user` / `tags` /
+`contexts` / `breadcrumbs` / `request` / `fingerprint` を 1 件だけ上書きできる。
 
-coreも`status` / `issues` / `error`を戻り値に載せますが、載るのは直前の1件だけです。
-`413`の分割再送や1MB超の分割では1回のflushで複数envelopeを送るため、最後以外の指摘は
-そちらからは読めません。全件を見るには`diagnostics`を使ってください。
+module の関数は `init()` が作った client を使う。`init()` を呼ぶ前に呼ぶと例外になり、
+`init()` を呼び直すと前の client は閉じる。client を自分で持つ場合は
+`createBrowserClient()` を使う（`init()` と同じ options を取り、グローバルの client は
+置き換えない）。React 統合はこの client を [`@ah-monica/react`](https://github.com/Accel-Hack/monica-sdk-browser/tree/main/react) に渡す。
 
 ```js
-const result = await Monica.flush()
-for (const diagnostic of result.diagnostics ?? []) {
-  console.log(diagnostic.status, diagnostic.issues)
-}
+import { createBrowserClient } from "@ah-monica/browser";
+
+const monica = createBrowserClient({ dsn: window.MONICA_DSN, environment: "production" });
 ```
 
-statusごとの扱い:
+queue は `flushIntervalMs` ごとに送るが、`level` が `fatal` の event と、queue が
+`batchSize` に達したときはすぐ送る。tab が隠れたときも自動で flush する。
 
-- `400` / `422`: 破棄。リトライしない
-- `401`: 破棄。以後そのclientからは送らない。clientは閉じ、以後の
-  `captureException()` / `captureMessage()`は`null`を返す。queueに残っていた分は
-  `discarded`に勘定する。止まったことは`flush()`の`stopped`で分かる。送信を再開するには
-  正しいkeyでclientを組み直す
-- `413`: itemを半分に割って送り直す。SDKは送信前にJSONを1,000,000 byte未満に抑えていて、
-  契約上の上限はgzip後1 MiBなので、specどおりのingestから`413`は返らない。返った場合は経路上の
-  何か（proxy / gateway / WAF）が契約より低いbody上限を持っている。割った先がすべて受理されても
-  `flush()`の`status`は`413`のまま残る
-- `429` / `5xx`: リトライする
-- error bodyを読むのは`429`以外の4xxだけ。上限は64 KiBで、超える場合や形が違う場合は
-  `issues`無しの破棄として扱う
+## オプション
+
+`init()` / `createBrowserClient()` に渡す `BrowserClientOptions`。
+
+| option | 型 | default | 説明 |
+| --- | --- | --- | --- |
+| `dsn` | `string` | （必須） | `https://<mpk_ key>@<host>/...`。送信先は origin + `/v1/envelope` |
+| `environment` | `string` | （必須） | 空文字不可、128 文字以内 |
+| `release` | `string` | なし | event の release |
+| `screenId` | `string` | なし | 全 event に `screen.id` tag として付く |
+| `route` | `string` | なし | `/form/follow/{token}` のような path template。`/` 始まりで `//` 始まりや `?` `#` を含まないこと。`request.url` が origin + この値になる |
+| `sampleRate` | `number` | `1` | 0〜1。event 単位のサンプリング |
+| `maxBreadcrumbs` | `number` | `50` | 保持する breadcrumb の上限 |
+| `maxQueueSize` | `number` | `100` | 送信待ち queue の上限。溢れると古い方から捨てて discarded に勘定する |
+| `batchSize` | `number` | `30` | 1 envelope に載せる item 数。`maxQueueSize` と 100 のうち小さい方に丸める |
+| `flushIntervalMs` | `number` | `5000` | queue を自動で送る間隔 |
+| `requestTimeoutMs` | `number` | `2000` | 1 リクエストの timeout。tab が隠れたときの自動 flush の待ち時間にも使う |
+| `maxRetries` | `number` | `2` | 429 / 5xx / 通信エラーの再試行回数 |
+| `dedupeWindowMs` | `number` | `1000` | 同じエラーを捨てる窓。`0` で無効 |
+| `autoCapture` | `boolean` | `true` | `window.onerror` / `unhandledrejection` / XHR breadcrumb / 自動 flush を仕掛けるか |
+| `captureConsoleErrors` | `boolean` | `false` | `console.error` を event にするか |
+| `beforeSend` | `(item, hint) => item \| null \| Promise<…>` | なし | 送る直前に item を書き換える。`null` を返すと捨てる |
+| `onDiagnostic` | `(diagnostic) => void \| null \| false` | なし（= `console.warn`） | 拒否された送信の通知先。`null` / `false` で無効化 |
+| `fetch` | `FetchLike` | `window.fetch` | 送信に使う fetch |
+| `window` | `Window` | グローバルの `window` | 自動収集を仕掛ける window |
+| `now` | `() => Date` | `() => new Date()` | 時刻の取得 |
+
+## 自動で収集するもの
+
+- `window.onerror` と `unhandledrejection`（`autoCapture: true` のとき）
+- 手動の `captureException()` / `captureMessage()`
+- status が 0 または 400 以上の `XMLHttpRequest` を breadcrumb に記録する。URL は
+  origin だけ、あわせて method・status・所要時間を残す
+- page URL は origin のみ（`route` を指定したときだけ template を足す）、`screen.id`
+  tag、`release`、stack frame（`node_modules` と拡張機能由来は `in_app: false`）
+- 同じエラーは `dedupeWindowMs` の窓で 1 回だけ送る
+- 送信中に起きたエラーと、送信そのものの失敗は自動収集へ戻さない
+
+`console.error` の収集は既定 OFF で、`captureConsoleErrors: true` のときだけ拾う。
+user は自動検出せず、`setUser()` を呼んだ場合だけ event に入る。request body、
+Cookie、`Authorization` は収集しない。stack frame の URL からは user info・query・
+fragment を落とす。現在の pathname は token や個人識別子を含み得るので収集しない。
+診断に route が必要なら、`route: '/form/follow/{token}'` のように実値を含まない
+template を明示する。アプリ固有の個人情報は `beforeSend` で allowlist 方式に落とす。
+
+## 送信結果と診断
+
+ingest が envelope を拒否すると、既定では `422`（envelope の形が契約と違う）、
+`401`（key が不正・失効。以後の送信を止める）、`413`（経路上のサイズ上限）を
+`console.warn` に 1 行で出す。`onDiagnostic` を渡すと警告の代わりにその関数へ渡り、
+`null` / `false` で無効になる。
+
+`flush()` / `close()` の戻り値には `accepted` / `discarded` / `remaining` に加えて、
+拒否があったときだけ `status` / `issues` / `error` / `stopped` と、その flush で
+拒否された全件の `diagnostics` が載る。
+
+警告の読み方、status ごとの扱い、field の詳細は
+[TROUBLESHOOTING.md](https://github.com/Accel-Hack/monica-sdk-browser/blob/main/TROUBLESHOOTING.md)。
+
+## 制約
+
+- DSN に public key（`mpk_`）以外を渡すと `init()` が失敗する
+- client の生成には `window` と `fetch` が要る。SSR では初期化しない
+- breadcrumb を取るのは `XMLHttpRequest` だけ。`fetch()` は hook しない
+- envelope は gzip 後 1 MiB、展開後 8 MiB、item 100 件、stack frame 200 件が上限。
+  SDK は送信前に JSON を 1,000,000 byte 未満に抑えて分割する
+- 例外の `cause` chain は 10 件までたどる
+
+## ライセンス
+
+Apache-2.0
