@@ -12,9 +12,9 @@
     },
     "browser": {
       "name": "@ah-monica/browser",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "dependencies": {
-        "@ah-monica/core": "^0.1.2",
+        "@ah-monica/core": "^0.2.1",
       },
       "devDependencies": {
         "@types/bun": "^1.2.21",
@@ -27,7 +27,7 @@
     },
     "react": {
       "name": "@ah-monica/react",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "dependencies": {
         "@ah-monica/browser": "0.1.1",
       },
@@ -47,7 +47,7 @@
   "packages": {
     "@ah-monica/browser": ["@ah-monica/browser@workspace:browser"],
 
-    "@ah-monica/core": ["@ah-monica/core@0.1.2", "", {}, "sha512-CcFM00iwLbIzpDGeC0XJZYbB7LBaVkFtuY06BnDvXJ/2zMbvMg44ZYoTnxDGTRmbJtNFNrdYVOM6KQMTS99cnQ=="],
+    "@ah-monica/core": ["@ah-monica/core@0.2.1", "", {}, "sha512-XGhZ4eXPk05vpGeYYJh4CoT/ywF3cmY5+7gALSkl9YFRp+yeJx3dFlZ8hA95s/RykY1phxVeTawtK8UdNVwIvw=="],
 
     "@ah-monica/react": ["@ah-monica/react@workspace:react"],
 

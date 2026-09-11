@@ -6,15 +6,16 @@
  * 「読めない body でも従来どおり破棄で終わる」ことの両方。
  */
 import { describe, expect, test } from "bun:test";
-import type { FetchLike, MonicaEnvelope } from "@ah-monica/core";
+import type {
+  FetchLike,
+  MonicaEnvelope,
+  TransportDiagnostic,
+  TransportDiagnosticHandler,
+  TransportIssue,
+} from "@ah-monica/core";
 import { createBrowserClient } from "../src/index.js";
 import { createBrowserTransport, type BrowserTransport } from "../src/transport.js";
-import type {
-  BrowserClientOptions,
-  BrowserDiagnosticHandler,
-  BrowserTransportResult,
-  MonicaIngestIssue,
-} from "../src/types.js";
+import type { BrowserClientOptions } from "../src/types.js";
 
 const DSN = "https://mpk_public@ingest.example.test/1";
 
@@ -41,7 +42,7 @@ interface Options {
   body?: string | null;
   responses?: Array<{ status: number; body?: string | null; headers?: Record<string, string> }>;
   maxRetries?: number;
-  onDiagnostic?: BrowserDiagnosticHandler | null | false;
+  onDiagnostic?: TransportDiagnosticHandler | null | false;
 }
 
 function createTransport(options: Options = {}): {
@@ -195,7 +196,7 @@ describe("422 の診断", () => {
 
   test("凍結してあるので handler が書き換えても flush() で読む値は変わらない", async () => {
     // handler の中で assert すると report の catch に飲まれるので、外で見る
-    const received: BrowserTransportResult[] = [];
+    const received: TransportDiagnostic[] = [];
     const client = createClient(422, INVALID_ENVELOPE, {
       onDiagnostic: (diagnostic) => received.push(diagnostic),
     });
@@ -209,7 +210,7 @@ describe("422 の診断", () => {
     expect(() => {
       (diagnostic as { status?: number }).status = 999;
     }).toThrow();
-    expect(() => (diagnostic.issues as MonicaIngestIssue[]).pop()).toThrow();
+    expect(() => (diagnostic.issues as TransportIssue[]).pop()).toThrow();
     expect(diagnostic.status).toBe(422);
     expect(diagnostic.issues).toHaveLength(2);
     await client.close();
@@ -281,6 +282,8 @@ describe("422 の診断", () => {
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics?.[0]?.status).toBe(422);
     expect(result.diagnostics?.[0]?.issues?.[0]?.path).toBe("$.items[0].request.method");
+    // message は core と同じ組み立て。既定の警告もこれをそのまま出す
+    expect(result.diagnostics?.[0]?.message).toBe(warnings[0]);
     expect(warnings[0]).toContain("$.items[0].request.method");
 
     // 取り出した診断は残らない。次の flush には持ち越さない
@@ -424,5 +427,163 @@ describe("422 以外の status の挙動は変えない", () => {
     expect(responses[0]!.bodyUsed).toBeFalse();
     expect(warnings).toEqual([]);
     expect(transport.takeDiagnostics()).toEqual([]);
+  });
+});
+
+describe("401 は client ごと止める（core 0.2.0）", () => {
+  // transport は 0.1.2 の頃から同じ鍵で二度と POST しなかったが、client は動き
+  // 続け、capture を受け付けては捨てていた。core 0.2.0 が status 401 を見て
+  // client を閉じるようになったので、利用者から「止まった」ことが分かる。
+  const REVOKED = JSON.stringify({ error: { code: "unauthorized", message: "key revoked" } });
+
+  test("flush が stopped を立て、以後の capture が null になる", async () => {
+    const client = createClient(401, REVOKED, { onDiagnostic: null });
+    await client.captureMessage("before");
+    const flushed = await client.flush();
+
+    expect(flushed.stopped).toBeTrue();
+    expect(flushed.status).toBe(401);
+    // queue に残っていた分は送る先が無いので捨てた分として勘定する
+    expect(flushed.discarded).toBe(1);
+    expect(flushed.remaining).toBe(0);
+    // 閉じたあとは event id を返さない。呼び出し側は「記録された」と誤解しない
+    expect(await client.captureMessage("after")).toBeNull();
+    await client.close();
+  });
+
+  test("422 では止めない（drop であって drop_and_stop ではない）", async () => {
+    const client = createClient(422, INVALID_ENVELOPE, { onDiagnostic: null });
+    await client.captureMessage("before");
+    const flushed = await client.flush();
+
+    expect(flushed.stopped).toBeUndefined();
+    expect(await client.captureMessage("after")).not.toBeNull();
+    await client.close();
+  });
+});
+
+describe("1 回の flush で複数 envelope が拒否されたとき", () => {
+  /**
+   * core の FlushResult にも status / issues / error はあるが、載るのは直前の
+   * 1 件だけ。413 の分割再送では 1 回の flush で複数 envelope を送るので、最後
+   * 以外の指摘が core の欄からは落ちる。browser が diagnostics で全件を持つのは
+   * このため。片方の item を直しても、もう片方が落ち続ける形にしない。
+   */
+  test("diagnostics は全件、core の欄は最後の 1 件", async () => {
+    const sent: number[] = [];
+    const fetchImplementation: FetchLike = async (input, init) => {
+      const request = new Request(input, init);
+      const decoded = await new Response(
+        request.body!.pipeThrough(new DecompressionStream("gzip")),
+      ).json() as { items: unknown[] };
+      sent.push(decoded.items.length);
+      // 2 件入りは 413。core が item 単位で半分に割って送り直す
+      if (decoded.items.length > 1) return new Response(null, { status: 413 });
+      const body = sent.length === 2
+        ? { code: "invalid_envelope", message: "first half", issues: [{ path: "$.items[0].level", message: "bad level" }] }
+        : { code: "unsupported_item", message: "second half", issues: [{ path: "$.items[0].type", message: "unknown type" }] };
+      return new Response(JSON.stringify({ error: body }), {
+        status: 422,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+    const client = createBrowserClient({
+      dsn: DSN,
+      environment: "test",
+      window: createRuntime(fetchImplementation),
+      maxRetries: 0,
+      flushIntervalMs: 60_000,
+      autoCapture: false,
+      onDiagnostic: null,
+    });
+    await client.captureMessage("a");
+    await client.captureMessage("b");
+    const result = await client.flush();
+
+    expect(sent).toEqual([2, 1, 1]);
+    // core が持つのは最後の拒否だけ。413 と 1 通目の 422 は残らない
+    expect(result.status).toBe(422);
+    expect(result.error?.code).toBe("unsupported_item");
+    // browser は 3 件とも持つ
+    expect(result.diagnostics?.map((diagnostic) => diagnostic.status)).toEqual([413, 422, 422]);
+    expect(result.diagnostics?.map((diagnostic) => diagnostic.error?.code))
+      .toEqual([undefined, "invalid_envelope", "unsupported_item"]);
+    // core の欄だけを見ると落ちる指摘
+    expect(result.diagnostics?.[1]?.issues?.[0]?.path).toBe("$.items[0].level");
+    await client.close();
+  });
+});
+
+describe("413 は経路の異常として 1 回だけ伝える", () => {
+  /**
+   * SDK は送信前に JSON を 1,000,000 byte 未満に抑えていて、契約上の上限は gzip 後
+   * 1 MiB。spec どおりの ingest から 413 は返らないので、返ったら経路上の何か
+   * (proxy / gateway / WAF) が契約より低い body 上限を持っている信号になる。
+   * 分割は上限を下回るまで再帰して最終的に成功するため、黙っていると誰も気づけない。
+   */
+  test("分割が成功しても 413 は残り、既定で 1 回だけ警告する", async () => {
+    const sent: number[] = [];
+    const fetchImplementation: FetchLike = async (input, init) => {
+      const request = new Request(input, init);
+      const decoded = await new Response(
+        request.body!.pipeThrough(new DecompressionStream("gzip")),
+      ).json() as { items: unknown[] };
+      sent.push(decoded.items.length);
+      // 2 件入りは 413。割れた 1 件ずつは受理される
+      return new Response(null, { status: decoded.items.length > 1 ? 413 : 202 });
+    };
+    const client = createBrowserClient({
+      dsn: DSN,
+      environment: "test",
+      window: createRuntime(fetchImplementation),
+      maxRetries: 0,
+      flushIntervalMs: 60_000,
+      autoCapture: false,
+    });
+    const { result, warnings } = await captureWarnings(async () => {
+      await client.captureMessage("a");
+      await client.captureMessage("b");
+      return client.flush();
+    });
+
+    expect(sent).toEqual([2, 1, 1]);
+    // 割った先はすべて受理されている。それでも 413 を受けた事実は残る
+    expect(result.accepted).toBeTrue();
+    expect(result.status).toBe(413);
+    expect(result.diagnostics?.map((diagnostic) => diagnostic.status)).toEqual([413]);
+    // 文面は core の formatDiagnostic と同じ。payload ではなく経路の問題だと分かる形
+    expect(warnings).toEqual([
+      "monica: ingest rejected the envelope with 413 (unknown); splitting and resending."
+        + " A size limit on the path may be below the 1 MiB (gzip) contract",
+    ]);
+    await client.close();
+  });
+
+  test("2 回目の 413 では警告しない（分割のたびには出さない）", async () => {
+    const fetchImplementation: FetchLike = async (input, init) => {
+      const request = new Request(input, init);
+      const decoded = await new Response(
+        request.body!.pipeThrough(new DecompressionStream("gzip")),
+      ).json() as { items: unknown[] };
+      return new Response(null, { status: decoded.items.length > 1 ? 413 : 202 });
+    };
+    const client = createBrowserClient({
+      dsn: DSN,
+      environment: "test",
+      window: createRuntime(fetchImplementation),
+      maxRetries: 0,
+      flushIntervalMs: 60_000,
+      autoCapture: false,
+    });
+    const { warnings } = await captureWarnings(async () => {
+      for (const round of ["first", "second"]) {
+        await client.captureMessage(`${round} a`);
+        await client.captureMessage(`${round} b`);
+        await client.flush();
+      }
+    });
+
+    expect(warnings).toHaveLength(1);
+    await client.close();
   });
 });

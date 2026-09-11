@@ -1,6 +1,6 @@
 {
   "name": "@ah-monica/browser",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Browser SDK for sending JavaScript errors to MONICA",
   "license": "Apache-2.0",
   "type": "module",
@@ -42,7 +42,7 @@
     "directory": "browser"
   },
   "dependencies": {
-    "@ah-monica/core": "^0.1.2"
+    "@ah-monica/core": "^0.2.1"
   },
   "devDependencies": {
     "@types/bun": "^1.2.21",

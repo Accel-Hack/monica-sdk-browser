@@ -62,12 +62,9 @@ export { createBrowserClient };
 export type {
   BrowserCaptureContext,
   BrowserClientOptions,
-  BrowserDiagnosticHandler,
   BrowserFlushResult,
   BrowserScope,
-  BrowserTransportResult,
   MonicaBrowserClient,
-  MonicaIngestIssue,
 } from "./types.js";
 export type {
   BeforeSend,
@@ -78,4 +75,9 @@ export type {
   MonicaLevel,
   MonicaRequest,
   MonicaUser,
+  TransportDiagnostic,
+  TransportDiagnosticHandler,
+  TransportError,
+  TransportIssue,
+  TransportResult,
 } from "@ah-monica/core";
