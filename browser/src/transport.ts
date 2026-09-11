@@ -45,6 +45,9 @@ export function createBrowserTransport(options: BrowserTransportOptions): Browse
   let unauthorized = false;
   // 停止したことは 1 回だけ伝える。同時に走った送信が両方 401 を受けても繰り返さない
   let stopWarned = false;
+  // 413 は分割のたびに返るので、警告はこの transport につき 1 回だけにする。
+  // spec どおりの ingest なら返らない status で、経路の異常は 1 行出れば伝わる
+  let tooLargeWarned = false;
   const pending: TransportDiagnostic[] = [];
 
   /**
@@ -60,11 +63,16 @@ export function createBrowserTransport(options: BrowserTransportOptions): Browse
     if (handler === null || handler === false) return;
     try {
       if (handler) handler(diagnostic);
-      // 既定の対象は 422（payload を直せる path が返る）と 401（以後送らないので
-      // 黙って止まると気付けない）。どちらも既定オフにしない
+      // 既定の対象は 422（payload を直せる path が返る）、401（以後送らないので
+      // 黙って止まると気付けない）、413（経路上の上限が契約より低い）。どれも
+      // 既定オフにしない。401 と 413 は transport につき 1 回だけ
       else if (diagnostic.status === 422) warn(diagnostic.message);
       else if (diagnostic.status === 401 && !stopWarned) {
         stopWarned = true;
+        warn(diagnostic.message);
+      }
+      else if (diagnostic.status === 413 && !tooLargeWarned) {
+        tooLargeWarned = true;
         warn(diagnostic.message);
       }
     } catch {
@@ -266,9 +274,12 @@ function describeDiagnostic(rejection: TransportResult): TransportDiagnostic {
   const issues = rejection.issues ?? [];
   const code = rejection.error?.code ?? "unknown";
   const prefix = `monica: ingest rejected the envelope with ${status} (${code})`;
-  // 401 は payload の問題ではなく鍵の問題。直すべきことが違うので文面も分ける
+  // 401 は鍵の問題、413 は経路の問題。どちらも payload を直す話ではないので
+  // 文面を分ける。core の formatDiagnostic と同じ 1 行にする
   const message = status === 401
     ? `${prefix}; no further envelopes will be sent`
+    : status === 413
+    ? `${prefix}; splitting and resending. A size limit on the path may be below the 1 MiB (gzip) contract`
     : [`${prefix}: ${issues.length} issue(s)`, ...issues.map((issue) => `${issue.path}: ${issue.message}`)].join("; ");
   return Object.freeze({
     status,

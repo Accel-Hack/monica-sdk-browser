@@ -69,12 +69,14 @@ allowlist方式により除去してください。
 
 ## 送信が拒否されたとき
 
-`422`（envelope schema 不正）と`401`（keyの不正・失効）は既定で`console.warn`に出ます。
-`422`はそのenvelopeを破棄し、`401`は破棄して以後の送信を止めます（警告は1回だけ）。
+既定で`console.warn`に出るのは`422`（envelope schema 不正）、`401`（keyの不正・失効）、
+`413`（経路上のサイズ上限）の3つです。`422`はそのenvelopeを破棄し、`401`は破棄して以後の
+送信を止めます。`401`と`413`は1回だけ出します。
 
 ```text
 monica: ingest rejected the envelope with 422 (invalid_envelope): 1 issue(s); $.items[0].request.method: Invalid type: Expected string
 monica: ingest rejected the envelope with 401 (unauthorized); no further envelopes will be sent
+monica: ingest rejected the envelope with 413 (unknown); splitting and resending. A size limit on the path may be below the 1 MiB (gzip) contract
 ```
 
 `422`の`issues`のpathは修正すべきfieldを指します。上の例なら`beforeSend`が
@@ -118,6 +120,10 @@ statusごとの扱い:
   `captureException()` / `captureMessage()`は`null`を返す。queueに残っていた分は
   `discarded`に勘定する。止まったことは`flush()`の`stopped`で分かる。送信を再開するには
   正しいkeyでclientを組み直す
+- `413`: itemを半分に割って送り直す。SDKは送信前にJSONを1,000,000 byte未満に抑えていて、
+  契約上の上限はgzip後1 MiBなので、specどおりのingestから`413`は返らない。返った場合は経路上の
+  何か（proxy / gateway / WAF）が契約より低いbody上限を持っている。割った先がすべて受理されても
+  `flush()`の`status`は`413`のまま残る
 - `429` / `5xx`: リトライする
 - error bodyを読むのは`429`以外の4xxだけ。上限は64 KiBで、超える場合や形が違う場合は
   `issues`無しの破棄として扱う

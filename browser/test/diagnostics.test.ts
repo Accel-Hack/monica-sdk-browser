@@ -513,3 +513,77 @@ describe("1 回の flush で複数 envelope が拒否されたとき", () => {
     await client.close();
   });
 });
+
+describe("413 は経路の異常として 1 回だけ伝える", () => {
+  /**
+   * SDK は送信前に JSON を 1,000,000 byte 未満に抑えていて、契約上の上限は gzip 後
+   * 1 MiB。spec どおりの ingest から 413 は返らないので、返ったら経路上の何か
+   * (proxy / gateway / WAF) が契約より低い body 上限を持っている信号になる。
+   * 分割は上限を下回るまで再帰して最終的に成功するため、黙っていると誰も気づけない。
+   */
+  test("分割が成功しても 413 は残り、既定で 1 回だけ警告する", async () => {
+    const sent: number[] = [];
+    const fetchImplementation: FetchLike = async (input, init) => {
+      const request = new Request(input, init);
+      const decoded = await new Response(
+        request.body!.pipeThrough(new DecompressionStream("gzip")),
+      ).json() as { items: unknown[] };
+      sent.push(decoded.items.length);
+      // 2 件入りは 413。割れた 1 件ずつは受理される
+      return new Response(null, { status: decoded.items.length > 1 ? 413 : 202 });
+    };
+    const client = createBrowserClient({
+      dsn: DSN,
+      environment: "test",
+      window: createRuntime(fetchImplementation),
+      maxRetries: 0,
+      flushIntervalMs: 60_000,
+      autoCapture: false,
+    });
+    const { result, warnings } = await captureWarnings(async () => {
+      await client.captureMessage("a");
+      await client.captureMessage("b");
+      return client.flush();
+    });
+
+    expect(sent).toEqual([2, 1, 1]);
+    // 割った先はすべて受理されている。それでも 413 を受けた事実は残る
+    expect(result.accepted).toBeTrue();
+    expect(result.status).toBe(413);
+    expect(result.diagnostics?.map((diagnostic) => diagnostic.status)).toEqual([413]);
+    // 文面は core の formatDiagnostic と同じ。payload ではなく経路の問題だと分かる形
+    expect(warnings).toEqual([
+      "monica: ingest rejected the envelope with 413 (unknown); splitting and resending."
+        + " A size limit on the path may be below the 1 MiB (gzip) contract",
+    ]);
+    await client.close();
+  });
+
+  test("2 回目の 413 では警告しない（分割のたびには出さない）", async () => {
+    const fetchImplementation: FetchLike = async (input, init) => {
+      const request = new Request(input, init);
+      const decoded = await new Response(
+        request.body!.pipeThrough(new DecompressionStream("gzip")),
+      ).json() as { items: unknown[] };
+      return new Response(null, { status: decoded.items.length > 1 ? 413 : 202 });
+    };
+    const client = createBrowserClient({
+      dsn: DSN,
+      environment: "test",
+      window: createRuntime(fetchImplementation),
+      maxRetries: 0,
+      flushIntervalMs: 60_000,
+      autoCapture: false,
+    });
+    const { warnings } = await captureWarnings(async () => {
+      for (const round of ["first", "second"]) {
+        await client.captureMessage(`${round} a`);
+        await client.captureMessage(`${round} b`);
+        await client.flush();
+      }
+    });
+
+    expect(warnings).toHaveLength(1);
+    await client.close();
+  });
+});
