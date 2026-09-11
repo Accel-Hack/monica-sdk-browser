@@ -1,7 +1,7 @@
 name: npm release
 
 # browser と react の package.json を同じ version に更新して main へ merge した後、
-# その commit へ v0.1.1 のような tag を付けると npm へ公開する。
+# その commit へ v0.1.1 のような tag を付けると npm へ公開し、GitHub release を作る。
 #
 # 移設元の monorepo は npm と Maven の release が同居していたので npm-v* /
 # maven-v* で振り分けていた。この repository は npm しか出さないので v* でよい。
@@ -14,10 +14,11 @@ concurrency:
   group: npm-release
   cancel-in-progress: false
 
-# npm Trusted Publishing が GitHub の OIDC token を発行するために必要。
-# NPM_TOKEN などの長期 publish token は使わない。
+# id-token は npm Trusted Publishing が GitHub の OIDC token を発行するために
+# 必要。NPM_TOKEN などの長期 publish token は使わない。
+# contents: write は gh release create のため。ci.yml は read のままでよい。
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -100,3 +101,27 @@ jobs:
         if: steps.versions.outputs.publish_react == 'true'
         working-directory: react
         run: npm publish --access public
+
+      # npm へ出てから release を作る。publish が落ちた tag の release だけが
+      # 先に残ると、利用者から見て「出ている」ものと registry がずれる。
+      #
+      # 本文は --generate-notes に任せ、CHANGELOG を手で持たない。前の tag から
+      # の PR と commit を GitHub が並べる。
+      #
+      # if を付けないので success()、つまり publish が一つも失敗していないとき
+      # に走る。skip は失敗ではないため、「browser だけ公開済みの tag を再実行
+      # して react を出す」場合も走って release を作る。初回は react の失敗で
+      # ここまで来ていないので、その release はまだ無い。
+      #
+      # release view の分岐は、手で release を作った tag や、消して打ち直した
+      # tag への保険。gh release create は既存 release に対して失敗する。
+      - name: GitHub release を作る
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::notice::$GITHUB_REF_NAME の release は既にあります。作成を飛ばします。"
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes

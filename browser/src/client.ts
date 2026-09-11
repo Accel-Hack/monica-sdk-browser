@@ -66,7 +66,7 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
     batchSize: options.batchSize,
     flushIntervalMs: options.flushIntervalMs,
     now,
-    sdk: { name: "@ah-monica/browser", version: "0.1.1" },
+    sdk: { name: "@ah-monica/browser", version: "0.1.2" },
     async beforeSend(item, hint) {
       const processed = options.beforeSend ? await options.beforeSend(item, hint) : item;
       if (processed === null) return null;
