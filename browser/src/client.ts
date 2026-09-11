@@ -1,5 +1,6 @@
 import {
   createCoreClient,
+  type FlushResult,
   type MonicaBreadcrumb,
   type MonicaErrorItem,
   type MonicaExceptionValue,
@@ -10,6 +11,7 @@ import { createBrowserTransport } from "./transport.js";
 import type {
   BrowserCaptureContext,
   BrowserClientOptions,
+  BrowserFlushResult,
   BrowserScope,
   MonicaBrowserClient,
 } from "./types.js";
@@ -49,16 +51,19 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
   let closed = false;
   const uninstallers: Array<() => void> = [];
 
+  const transport = createBrowserTransport({
+    dsn: options.dsn,
+    fetch: fetchImplementation,
+    requestTimeoutMs,
+    maxRetries,
+    onSendingChange(value) {
+      sending = value;
+    },
+    onDiagnostic: options.onDiagnostic,
+  });
+
   const core = createCoreClient({
-    transport: createBrowserTransport({
-      dsn: options.dsn,
-      fetch: fetchImplementation,
-      requestTimeoutMs,
-      maxRetries,
-      onSendingChange(value) {
-        sending = value;
-      },
-    }),
+    transport,
     environment: options.environment,
     release: options.release,
     sampleRate: options.sampleRate,
@@ -275,10 +280,24 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
     });
   }
 
-  async function close(timeoutMs?: number) {
+  /**
+   * core は transport の戻り値を呼び出し側へ返さないので、拒否された envelope の
+   * status / issues は transport の控えから拾って flush の結果に足す。
+   * 既存の field は触らないので、`accepted` だけを見ている利用者に影響しない。
+   */
+  function withDiagnostics(result: FlushResult): BrowserFlushResult {
+    const diagnostics = transport.takeDiagnostics();
+    return diagnostics.length > 0 ? { ...result, diagnostics } : result;
+  }
+
+  async function flush(timeoutMs?: number): Promise<BrowserFlushResult> {
+    return withDiagnostics(await core.flush(timeoutMs));
+  }
+
+  async function close(timeoutMs?: number): Promise<BrowserFlushResult> {
     closed = true;
     while (uninstallers.length > 0) uninstallers.pop()?.();
-    return core.close(timeoutMs);
+    return withDiagnostics(await core.close(timeoutMs));
   }
 
   if (options.autoCapture ?? true) {
@@ -293,7 +312,7 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
     setUser,
     addBreadcrumb,
     withScope,
-    flush: core.flush,
+    flush,
     close,
   };
 }
