@@ -89,9 +89,11 @@ await Monica.close();  // 自動収集を外して送り切る
 queue は `flushIntervalMs` ごとに送るが、`level` が `fatal` の event と、queue が
 `batchSize` に達したときはすぐ送る。tab が隠れたときも自動で flush する。
 
-`captureException()` / `captureMessage()` は event id を返す（送らなかった場合は
-`null`）。第 2 引数（`captureMessage()` は第 3 引数）で `level` / `user` / `tags` / `contexts` / `breadcrumbs` /
-`request` / `fingerprint` を 1 件だけ上書きできる。
+`captureException()` / `captureMessage()` は event id を Promise で返す（送らなかった
+場合は `null`）。`captureException(error, context)` の第 2 引数と
+`captureMessage(message, level, context)` の第 3 引数で `user` / `tags` / `contexts` /
+`breadcrumbs` / `request` / `fingerprint` を 1 件だけ上書きできる（`captureException()`
+は `level` も。`captureMessage()` の `level` は第 2 引数）。
 
 client を明示的に持ちたい場合は `createBrowserClient()` を使う。`init()` と同じ
 options を取り、グローバルの client は置き換えない。
@@ -154,7 +156,7 @@ capture context を合成した関数を取れる。既存の Error Boundary か
 | `dedupeWindowMs` | `number` | `1000` | 同じエラーを捨てる窓。`0` で無効 |
 | `autoCapture` | `boolean` | `true` | `window.onerror` / `unhandledrejection` / XHR breadcrumb / 自動 flush を仕掛けるか |
 | `captureConsoleErrors` | `boolean` | `false` | `console.error` を event にするか |
-| `beforeSend` | `(item, hint) => item \| null \| Promise<…>` | なし | 送る直前に item を書き換える。`null` を返すと捨てる |
+| `beforeSend` | `(item, hint) => item \| null \| Promise<…>` | なし | capture のたびに、queue へ積む前に item を書き換える。`null` を返すと捨てる |
 | `onDiagnostic` | `(diagnostic) => void \| null \| false` | なし（= `console.warn`） | 拒否された送信の通知先。`null` / `false` で無効化 |
 | `fetch` | `FetchLike` | `window.fetch` | 送信に使う fetch |
 | `window` | `Window` | グローバルの `window` | 自動収集を仕掛ける window |

@@ -75,9 +75,11 @@ await Monica.flush();  // 既定 2000 ms 待つ
 await Monica.close();  // 自動収集を外して送り切る
 ```
 
-`captureException()` / `captureMessage()` は event id を返す（送らなかった場合は
-`null`）。第 2 引数（`captureMessage()` は第 3 引数）で `level` / `user` / `tags` /
-`contexts` / `breadcrumbs` / `request` / `fingerprint` を 1 件だけ上書きできる。
+`captureException()` / `captureMessage()` は event id を Promise で返す（送らなかった
+場合は `null`）。`captureException(error, context)` の第 2 引数と
+`captureMessage(message, level, context)` の第 3 引数で `user` / `tags` / `contexts` /
+`breadcrumbs` / `request` / `fingerprint` を 1 件だけ上書きできる（`captureException()`
+は `level` も。`captureMessage()` の `level` は第 2 引数）。
 
 module の関数は `init()` が作った client を使う。`init()` を呼ぶ前に呼ぶと例外になり、
 `init()` を呼び直すと前の client は閉じる。client を自分で持つ場合は
@@ -114,7 +116,7 @@ queue は `flushIntervalMs` ごとに送るが、`level` が `fatal` の event �
 | `dedupeWindowMs` | `number` | `1000` | 同じエラーを捨てる窓。`0` で無効 |
 | `autoCapture` | `boolean` | `true` | `window.onerror` / `unhandledrejection` / XHR breadcrumb / 自動 flush を仕掛けるか |
 | `captureConsoleErrors` | `boolean` | `false` | `console.error` を event にするか |
-| `beforeSend` | `(item, hint) => item \| null \| Promise<…>` | なし | 送る直前に item を書き換える。`null` を返すと捨てる |
+| `beforeSend` | `(item, hint) => item \| null \| Promise<…>` | なし | capture のたびに、queue へ積む前に item を書き換える。`null` を返すと捨てる |
 | `onDiagnostic` | `(diagnostic) => void \| null \| false` | なし（= `console.warn`） | 拒否された送信の通知先。`null` / `false` で無効化 |
 | `fetch` | `FetchLike` | `window.fetch` | 送信に使う fetch |
 | `window` | `Window` | グローバルの `window` | 自動収集を仕掛ける window |

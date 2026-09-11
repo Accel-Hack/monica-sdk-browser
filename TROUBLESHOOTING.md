@@ -122,7 +122,7 @@ for (const diagnostic of result.diagnostics ?? []) {
 
 | 症状 | 原因 | 対処 |
 | --- | --- | --- |
-| `init()` が `TypeError: browser dsn must contain a public mpk_ key` | DSN の key が `mpk_` 始まりでない | public key を使う。`msk_` は browser に置かない |
+| `init()` が `TypeError: browser dsn must contain a public mpk_ key…` | DSN の key が `mpk_` 始まりでない | public key を使う。`msk_` は browser に置かない |
 | `init()` が `TypeError: dsn must use https except for localhost` | DSN が `http`（`localhost` / `127.0.0.1` 以外） | https の DSN を使う |
 | `init()` が `TypeError: dsn must include an API key as the username` | DSN の user info が空 | `https://<key>@<host>/` の形にする |
 | `init()` が `TypeError: route must be a path template…` | `route` が `/` 始まりでない、`//` 始まり、`?` / `#` を含む | `/form/follow/{token}` のような template にする |
