@@ -88,8 +88,9 @@ Monica.init({
   dsn: window.MONICA_DSN,
   environment: 'production',
   onDiagnostic(diagnostic) {
-    // diagnostic: { accepted, status, error?: { code, message }, issues?: [{ path, message }] }
-    myLogger.warn('monica rejected', diagnostic.status, diagnostic.issues)
+    // diagnostic: { status, issues, error?: { code, message }, message }
+    // message は既定の警告と同じ1行。core と同じ文面なのでSDK横断で検索できる
+    myLogger.warn(diagnostic.message, diagnostic.status, diagnostic.issues)
   },
 })
 ```
@@ -98,6 +99,10 @@ Monica.init({
 拒否があったときだけ増えます。入るのは前回取り出して以降の未報告分（tabが隠れたときの
 自動flushで拒否されたぶんも含む）で、取り出すと空になります。控えは20件を超えると
 古い方から捨てます。
+
+coreも`status` / `issues` / `error`を戻り値に載せますが、載るのは直前の1件だけです。
+`413`の分割再送や1MB超の分割では1回のflushで複数envelopeを送るため、最後以外の指摘は
+そちらからは読めません。全件を見るには`diagnostics`を使ってください。
 
 ```js
 const result = await Monica.flush()

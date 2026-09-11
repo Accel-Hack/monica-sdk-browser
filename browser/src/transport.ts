@@ -2,12 +2,11 @@ import type {
   FetchLike,
   MonicaEnvelope,
   MonicaTransport,
+  TransportDiagnostic,
+  TransportDiagnosticHandler,
+  TransportIssue,
+  TransportResult,
 } from "@ah-monica/core";
-import type {
-  BrowserDiagnosticHandler,
-  BrowserTransportResult,
-  MonicaIngestIssue,
-} from "./types.js";
 
 interface BrowserTransportOptions {
   dsn: string;
@@ -15,17 +14,17 @@ interface BrowserTransportOptions {
   requestTimeoutMs: number;
   maxRetries: number;
   onSendingChange(sending: boolean): void;
-  onDiagnostic?: BrowserDiagnosticHandler | null | false;
+  onDiagnostic?: TransportDiagnosticHandler | null | false;
 }
 
 export interface BrowserTransport extends MonicaTransport {
-  send(envelope: MonicaEnvelope, signal?: AbortSignal): Promise<BrowserTransportResult>;
+  send(envelope: MonicaEnvelope, signal?: AbortSignal): Promise<TransportResult>;
   /**
    * 前回の呼び出し以降に記録した拒否の診断を返し、内部の控えを空にする。
    * core の client は `transport.send` の戻り値を呼び出し側へ返さないので、
    * `flush()` から issues を見せるにはここを経由するしかない。
    */
-  takeDiagnostics(): BrowserTransportResult[];
+  takeDiagnostics(): TransportDiagnostic[];
 }
 
 /** error body の読み込み上限。ingest の error body は小さく、これを超える body は診断に使わない */
@@ -46,14 +45,15 @@ export function createBrowserTransport(options: BrowserTransportOptions): Browse
   let unauthorized = false;
   // 停止したことは 1 回だけ伝える。同時に走った送信が両方 401 を受けても繰り返さない
   let stopWarned = false;
-  const pending: BrowserTransportResult[] = [];
+  const pending: TransportDiagnostic[] = [];
 
   /**
    * 拒否を控えに残し、警告経路へ渡す。控えは通知の有無と無関係に残す
    * （警告を切っていても `flush()` からは issues を読めるようにする）。
    * 1 envelope につき 1 回。4xx はリトライしないので retry ごとには出ない。
    */
-  function report(diagnostic: BrowserTransportResult): void {
+  function report(rejection: TransportResult): void {
+    const diagnostic = describeDiagnostic(rejection);
     pending.push(diagnostic);
     if (pending.length > MAX_PENDING_DIAGNOSTICS) pending.shift();
     const handler = options.onDiagnostic;
@@ -62,10 +62,10 @@ export function createBrowserTransport(options: BrowserTransportOptions): Browse
       if (handler) handler(diagnostic);
       // 既定の対象は 422（payload を直せる path が返る）と 401（以後送らないので
       // 黙って止まると気付けない）。どちらも既定オフにしない
-      else if (diagnostic.status === 422) warnRejection(diagnostic);
+      else if (diagnostic.status === 422) warn(diagnostic.message);
       else if (diagnostic.status === 401 && !stopWarned) {
         stopWarned = true;
-        warnStopped(diagnostic);
+        warn(diagnostic.message);
       }
     } catch {
       // 利用者の handler が投げても送信経路は壊さない
@@ -73,11 +73,11 @@ export function createBrowserTransport(options: BrowserTransportOptions): Browse
   }
 
   return {
-    takeDiagnostics(): BrowserTransportResult[] {
+    takeDiagnostics(): TransportDiagnostic[] {
       return pending.splice(0, pending.length);
     },
 
-    async send(envelope, outerSignal): Promise<BrowserTransportResult> {
+    async send(envelope, outerSignal): Promise<TransportResult> {
       if (outerSignal?.aborted) return { accepted: false };
       if (unauthorized) return { accepted: false, status: 401 };
       options.onSendingChange(true);
@@ -175,8 +175,8 @@ async function gzipEnvelope(envelope: MonicaEnvelope): Promise<ArrayBuffer> {
  * 読めない・空・JSON でない・形が違う・大きすぎるときは issues 無しの
  * 従来どおりの結果を返す。ここから例外は出さない。
  */
-async function describeRejection(response: Response): Promise<BrowserTransportResult> {
-  const result: BrowserTransportResult = { accepted: false, status: response.status };
+async function describeRejection(response: Response): Promise<TransportResult> {
+  const result: TransportResult = { accepted: false, status: response.status };
   try {
     await fillFromErrorBody(response, result);
   } catch {
@@ -192,7 +192,7 @@ async function describeRejection(response: Response): Promise<BrowserTransportRe
   return Object.freeze(result);
 }
 
-async function fillFromErrorBody(response: Response, result: BrowserTransportResult): Promise<void> {
+async function fillFromErrorBody(response: Response, result: TransportResult): Promise<void> {
   const text = await readLimitedText(response);
   if (text === undefined || text === "") return;
   const parsed: unknown = JSON.parse(text);
@@ -207,8 +207,8 @@ async function fillFromErrorBody(response: Response, result: BrowserTransportRes
 }
 
 /** path / message が string でない要素は捨てる */
-function collectIssues(values: unknown[]): MonicaIngestIssue[] {
-  const issues: MonicaIngestIssue[] = [];
+function collectIssues(values: unknown[]): TransportIssue[] {
+  const issues: TransportIssue[] = [];
   for (const value of values) {
     if (!isRecord(value)) continue;
     const { path, message } = value;
@@ -257,24 +257,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * 既定の警告。browser では開発者がコンソールを見ているので、これが一番届く。
+ * 拒否の結果から診断を組む。`message` は SDK 横断で同じ文面にして、サポートで
+ * 検索できるようにしている（core の formatDiagnostic と同じ形）。
  * API key と envelope 本体は出さない（出すのは status / code / message / path）。
  */
-function warnRejection(diagnostic: BrowserTransportResult): void {
-  const issues = diagnostic.issues ?? [];
-  const head = `${rejectionPrefix(diagnostic)}: ${issues.length} issue(s)`;
-  // 1 行にまとめる。SDK 横断で同じ文面にして、サポートで検索できるようにしている
-  warn([head, ...issues.map((issue) => `${issue.path}: ${issue.message}`)].join("; "));
-}
-
-/** 401 は破棄して以後送らない。黙って止まると「送れていない」ことに気付けない */
-function warnStopped(diagnostic: BrowserTransportResult): void {
-  warn(`${rejectionPrefix(diagnostic)}; no further envelopes will be sent`);
-}
-
-function rejectionPrefix(diagnostic: BrowserTransportResult): string {
-  const code = diagnostic.error?.code ?? "unknown";
-  return `monica: ingest rejected the envelope with ${diagnostic.status} (${code})`;
+function describeDiagnostic(rejection: TransportResult): TransportDiagnostic {
+  const status = rejection.status ?? 0;
+  const issues = rejection.issues ?? [];
+  const code = rejection.error?.code ?? "unknown";
+  const prefix = `monica: ingest rejected the envelope with ${status} (${code})`;
+  // 401 は payload の問題ではなく鍵の問題。直すべきことが違うので文面も分ける
+  const message = status === 401
+    ? `${prefix}; no further envelopes will be sent`
+    : [`${prefix}: ${issues.length} issue(s)`, ...issues.map((issue) => `${issue.path}: ${issue.message}`)].join("; ");
+  return Object.freeze({
+    status,
+    issues,
+    ...(rejection.error ? { error: rejection.error } : {}),
+    message,
+  });
 }
 
 function warn(message: string): void {
