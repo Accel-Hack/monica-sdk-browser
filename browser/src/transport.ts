@@ -289,7 +289,8 @@ function describeDiagnostic(rejection: TransportResult): TransportDiagnostic {
   });
 }
 
-function warn(message: string): void {
+/** client からも使う。console が無い実行環境で落ちないためのヘルパ。 */
+export function warn(message: string): void {
   if (typeof console === "undefined" || typeof console.warn !== "function") return;
   console.warn(message);
 }

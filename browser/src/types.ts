@@ -25,6 +25,11 @@ export interface BrowserFlushResult extends FlushResult {
 export interface BrowserClientOptions {
   dsn: string;
   environment: string;
+  /**
+   * デプロイされた成果物を識別する文字列（git の SHA、tag、ビルド番号など）。
+   * 同じビルドから出る全 event で同じ値にする。string 以外・空文字は envelope に
+   * 載せず警告する。省けば envelope に key ごと出ない。
+   */
   release?: string;
   screenId?: string;
   /** Safe route template such as /form/follow/{token}. The live pathname is never inferred. */
