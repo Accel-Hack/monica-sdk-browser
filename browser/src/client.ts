@@ -7,7 +7,7 @@ import {
   type MonicaFrame,
   type MonicaUser,
 } from "@ah-monica/core";
-import { createBrowserTransport } from "./transport.js";
+import { createBrowserTransport, warn } from "./transport.js";
 import type {
   BrowserCaptureContext,
   BrowserClientOptions,
@@ -44,6 +44,7 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
   const requestTimeoutMs = options.requestTimeoutMs ?? 2_000;
   const maxRetries = options.maxRetries ?? 2;
   const route = normalizeRoute(options.route);
+  const release = safeRelease(options.release);
   const now = options.now ?? (() => new Date());
   const recent = new Map<string, number>();
   let sending = false;
@@ -65,13 +66,13 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
   const core = createCoreClient({
     transport,
     environment: options.environment,
-    release: options.release,
+    release,
     sampleRate: options.sampleRate,
     maxQueueSize: options.maxQueueSize,
     batchSize: options.batchSize,
     flushIntervalMs: options.flushIntervalMs,
     now,
-    sdk: { name: "@ah-monica/browser", version: "0.2.0" },
+    sdk: { name: "@ah-monica/browser", version: "0.2.1" },
     async beforeSend(item, hint) {
       const processed = options.beforeSend ? await options.beforeSend(item, hint) : item;
       if (processed === null) return null;
@@ -410,6 +411,21 @@ function originOnlyUrl(value: string, base: string): string {
 function pageUrl(value: string, route: string | undefined): string {
   const origin = originOnlyUrl(value, value);
   return route ? `${origin}${route}` : origin;
+}
+
+/**
+ * release は契約では任意の string。型では `string | undefined` に絞っているが、
+ * JS や IIFE からは `null` や空文字が渡る。そのまま載せると envelope ごと 422 に
+ * なり、同じ envelope に相乗りした他の item まで落ちる。計測のためにアプリを
+ * 止める理由は無いので throw はせず、key ごと落として警告だけ出す。
+ */
+function safeRelease(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim() === "") {
+    warn("monica: release must be a non-empty string; ignoring it");
+    return undefined;
+  }
+  return value;
 }
 
 function normalizeRoute(route: string | undefined): string | undefined {

@@ -322,6 +322,41 @@ describe("createBrowserClient", () => {
     expect(result.accepted).toBeFalse();
     expect(attempts).toBe(0);
   });
+
+  test("drops a release that is not a usable string instead of sending a 422 envelope", async () => {
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message: string) => void warnings.push(message);
+
+    try {
+      for (const release of [null, "", "   ", 1] as unknown as string[]) {
+        let captured: MonicaItem | undefined;
+        const client = createBrowserClient({
+          dsn: "https://mpk_public@ingest.example.test/1",
+          environment: "test",
+          release,
+          window: createRuntime(),
+          beforeSend(item) {
+            captured = structuredClone(item);
+            return null;
+          },
+        });
+
+        await client.captureMessage("no release");
+        await client.flush();
+        expect(captured).toBeDefined();
+        // 契約では release は任意。null のまま載せると envelope ごと 422 になる
+        expect(Object.hasOwn(captured!, "release")).toBeFalse();
+        await client.close();
+      }
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(warnings).toHaveLength(4);
+    expect(warnings[0]).toContain("release must be a non-empty string");
+  });
+
 });
 
 async function decodeEnvelope(request: Request) {
