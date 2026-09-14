@@ -1,6 +1,6 @@
 {
   "name": "@ah-monica/react",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "React Error Boundary, provider, and hooks for the MONICA browser SDK",
   "license": "Apache-2.0",
   "type": "module",
@@ -38,7 +38,7 @@
     "directory": "react"
   },
   "dependencies": {
-    "@ah-monica/browser": "0.2.0"
+    "@ah-monica/browser": "0.2.1"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"
