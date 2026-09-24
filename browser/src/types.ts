@@ -23,7 +23,8 @@ export interface BrowserFlushResult extends FlushResult {
 }
 
 export interface BrowserClientOptions {
-  dsn: string;
+  /** 未指定・空文字・空白だけなら何も送らない client を返す。 */
+  dsn?: string | null;
   environment: string;
   /**
    * デプロイされた成果物を識別する文字列（git の SHA、tag、ビルド番号など）。

@@ -125,6 +125,7 @@ for (const diagnostic of result.diagnostics ?? []) {
 | `init()` が `TypeError: browser dsn must contain a public mpk_ key…` | DSN の key が `mpk_` 始まりでない | public key を使う。`msk_` は browser に置かない |
 | `init()` が `TypeError: dsn must use https except for localhost` | DSN が `http`（`localhost` / `127.0.0.1` 以外） | https の DSN を使う |
 | `init()` が `TypeError: dsn must include an API key as the username` | DSN の user info が空 | `https://<key>@<host>/` の形にする |
+| event が届かず、警告も出ない | `dsn` が未指定・空で、何も送らない client になっている | build / 実行環境で DSN が渡っているか確かめる |
 | `init()` が `TypeError: route must be a path template…` | `route` が `/` 始まりでない、`//` 始まり、`?` / `#` を含む | `/form/follow/{token}` のような template にする |
 | `init()` が `TypeError: environment must not be empty` / `RangeError: environment must not exceed 128 characters` | `environment` が空か長すぎる | 128 文字以内の非空文字列にする |
 | `init()` が `RangeError: sampleRate must be between 0 and 1` | `sampleRate` が範囲外 | 0〜1 にする |
