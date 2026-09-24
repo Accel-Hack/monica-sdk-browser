@@ -298,6 +298,34 @@ describe("createBrowserClient", () => {
     })).toThrow("dsn must use https except for localhost");
   });
 
+  test("returns a client that sends nothing when the dsn is missing or blank", async () => {
+    for (const dsn of [undefined, null, "", "  "]) {
+      let fetched = 0;
+      const runtime = createRuntime(async () => {
+        fetched += 1;
+        return new Response(null, { status: 202 });
+      });
+      const open = FakeXmlHttpRequest.prototype.open;
+      const client = createBrowserClient({ dsn, environment: "test", window: runtime });
+
+      expect(FakeXmlHttpRequest.prototype.open).toBe(open);
+      runtime.dispatchEvent(new Event("error"));
+      expect(await client.captureException(new Error("boom"))).toBeNull();
+      expect(await client.captureMessage("hello")).toBeNull();
+      client.withScope((scope) => scope.setTag("a", "b"));
+      expect(await client.flush()).toEqual({ accepted: true, discarded: 0, remaining: 0 });
+      expect(await client.close()).toEqual({ accepted: true, discarded: 0, remaining: 0 });
+      expect(fetched).toBe(0);
+    }
+
+    // window も environment も無い SSR でも投げない
+    const bare = createBrowserClient({ dsn: "", environment: "" });
+    bare.setUser({ id: "u" });
+    bare.addBreadcrumb({ message: "m" });
+    expect(bare.withScope(() => 1)).toBe(1);
+    expect(await bare.captureException(new Error("boom"))).toBeNull();
+  });
+
   test("does not start transport work for an already-aborted operation", async () => {
     let attempts = 0;
     const transport = createBrowserTransport({

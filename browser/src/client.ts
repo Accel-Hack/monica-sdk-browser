@@ -30,6 +30,7 @@ interface XhrMetadata {
 }
 
 export function createBrowserClient(options: BrowserClientOptions): MonicaBrowserClient {
+  if (!options.dsn?.trim()) return noopClient();
   const candidate = options.window ?? (typeof window === "undefined" ? undefined : window);
   if (!candidate) throw new Error("A browser window is required");
   const runtime: Window & typeof globalThis = candidate;
@@ -315,6 +316,23 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
     withScope,
     flush,
     close,
+  };
+}
+
+/** DSN が無いときの client。何も仕掛けず、何も送らない。 */
+function noopClient(): MonicaBrowserClient {
+  const nothing = () => undefined;
+  const result = async (): Promise<BrowserFlushResult> =>
+    ({ accepted: true, discarded: 0, remaining: 0 });
+  return {
+    captureException: async () => null,
+    captureMessage: async () => null,
+    setUser: nothing,
+    addBreadcrumb: nothing,
+    withScope: (callback) =>
+      callback({ setUser: nothing, setTag: nothing, setContext: nothing, addBreadcrumb: nothing }),
+    flush: result,
+    close: result,
   };
 }
 

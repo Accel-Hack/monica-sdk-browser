@@ -52,6 +52,9 @@ DSN は `https://<key>@<host>/...` の形で、key には browser へ公開し�
 `https` 以外の DSN（`localhost` と `127.0.0.1` の `http` だけ例外）は `init()` が
 `TypeError` を投げる。
 
+`dsn` が未指定・`null`・空文字（空白だけも含む）なら、例外を出さずに何も送らない
+client を返す。自動収集も仕掛けず、`captureException()` などは `null` を返す。
+
 `<script>` で読んだ場合も同じ。
 
 ```html
@@ -141,7 +144,7 @@ capture context を合成した関数を取れる。既存の Error Boundary か
 
 | option | 型 | default | 説明 |
 | --- | --- | --- | --- |
-| `dsn` | `string` | （必須） | `https://<mpk_ key>@<host>/...`。送信先は origin + `/v1/envelope` |
+| `dsn` | `string \| null` | なし | `https://<mpk_ key>@<host>/...`。送信先は origin + `/v1/envelope`。未指定・空なら何も送らない |
 | `environment` | `string` | （必須） | 空文字不可、128 文字以内 |
 | `release` | `string` | なし | event の release |
 | `screenId` | `string` | なし | 全 event に `screen.id` tag として付く |
