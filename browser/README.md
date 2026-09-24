@@ -103,7 +103,7 @@ queue は `flushIntervalMs` ごとに送るが、`level` が `fatal` の event �
 | --- | --- | --- | --- |
 | `dsn` | `string` | （必須） | `https://<mpk_ key>@<host>/...`。送信先は origin + `/v1/envelope` |
 | `environment` | `string` | （必須） | 空文字不可、128 文字以内 |
-| `release` | `string` | なし | event の release |
+| `release` | `string` | なし | event の release。build 時に git の commit SHA を埋め込み（Vite の `define` や env など）、server 側 SDK と同じ値にすると両方の event が揃う |
 | `screenId` | `string` | なし | 全 event に `screen.id` tag として付く |
 | `route` | `string` | なし | `/form/follow/{token}` のような path template。`/` 始まりで `//` 始まりや `?` `#` を含まないこと。`request.url` が origin + この値になる |
 | `sampleRate` | `number` | `1` | 0〜1。event 単位のサンプリング |
@@ -157,6 +157,9 @@ ingest が envelope を拒否すると、既定では `422`（envelope の形が
 ## 制約
 
 - DSN に public key（`mpk_`）以外を渡すと `init()` が失敗する
+- public key に設定する許可 origin は完全一致だけで、`*.example.com` のような
+  wildcard は効かない。許可 origin が空なら origin で制限しない。PR ごとの preview
+  （`pr-<n>.example.net` など）は、許可 origin を空にした preview 用 project を別に作る
 - client の生成には `window` と `fetch` が要る。SSR では初期化しない
 - breadcrumb を取るのは `XMLHttpRequest` だけ。`fetch()` は hook しない
 - envelope は gzip 後 1 MiB、展開後 8 MiB、item 100 件、stack frame 200 件が上限。
