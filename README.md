@@ -199,9 +199,10 @@ ingest が envelope を拒否すると、既定では `422`（envelope の形が
 
 - DSN に public key（`mpk_`）以外を渡すと `init()` が失敗する。secret key（`msk_`）は
   browser に置かない
-- public key に設定する許可 origin は完全一致だけで、`*.example.com` のような
-  wildcard は効かない。許可 origin が空なら origin で制限しない。PR ごとの preview
-  （`pr-<n>.example.net` など）は、許可 origin を空にした preview 用 project を別に作る
+- project の許可 origin（public key での送信にだけ効く）は完全一致だけで、
+  `*.example.com` のような wildcard は登録できない。許可 origin が空なら origin で
+  制限しない。PR ごとの preview（`pr-<n>.example.net` など）は、許可 origin を空にした
+  preview 用 project を別に作る
 - client の生成には `window` と `fetch` が要る。SSR では初期化しない
 - breadcrumb を取るのは `XMLHttpRequest` だけ。`fetch()` は hook しない
 - envelope は gzip 後 1 MiB、展開後 8 MiB、item 100 件、stack frame 200 件が上限。
