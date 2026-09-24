@@ -6,12 +6,9 @@
     "baseUrl": "../..",
     "paths": {
       // package ディレクトリへ向ける。TypeScript 4.8 が package.json の
-      // types / main を読んで解決できることまで確かめる
-      "@ah-monica/browser": ["."],
-      "@ah-monica/core": [
-        "node_modules/@ah-monica/core/dist/index.d.ts",
-        "../node_modules/@ah-monica/core/dist/index.d.ts"
-      ]
+      // types / main を読んで解決できることまで確かめる。@ah-monica/core は
+      // paths で指さず、利用者と同じく node_modules の package.json から解決させる
+      "@ah-monica/browser": ["."]
     },
     "strict": true,
     "noEmit": true,
