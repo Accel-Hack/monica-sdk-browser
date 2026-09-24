@@ -317,6 +317,13 @@ describe("createBrowserClient", () => {
       expect(await client.close()).toEqual({ accepted: true, discarded: 0, remaining: 0 });
       expect(fetched).toBe(0);
     }
+
+    // window も environment も無い SSR でも投げない
+    const bare = createBrowserClient({ dsn: "", environment: "" });
+    bare.setUser({ id: "u" });
+    bare.addBreadcrumb({ message: "m" });
+    expect(bare.withScope(() => 1)).toBe(1);
+    expect(await bare.captureException(new Error("boom"))).toBeNull();
   });
 
   test("does not start transport work for an already-aborted operation", async () => {
