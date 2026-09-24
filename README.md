@@ -10,7 +10,7 @@ browser 上で起きた JavaScript のエラーを MONICA の Ingest API（`POST
 | [`browser/`](browser/) | `@ah-monica/browser` | 素の JavaScript を含む browser アプリ。ESM と `<script>` で読める IIFE を同じ package で配布する。`fetch` / `CompressionStream` / `AbortController` / `crypto.randomUUID` のある browser で動く。型は TypeScript 4.8 以降 |
 | [`react/`](react/) | `@ah-monica/react` | React 18 / 19 向けの Error Boundary・Provider・hooks。`@ah-monica/browser` の上に載る |
 
-`@ah-monica/browser` は `@ah-monica/core`（`^0.2.1`）を npm 依存として使う。
+`@ah-monica/browser` は `@ah-monica/core`（`^0.3.0`）を npm 依存として使う。
 `@ah-monica/react` は `@ah-monica/browser` に依存し、`react` は peer 依存
 （`^18.0.0 || ^19.0.0`）。
 
