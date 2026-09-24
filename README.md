@@ -146,7 +146,7 @@ capture context を合成した関数を取れる。既存の Error Boundary か
 | --- | --- | --- | --- |
 | `dsn` | `string \| null` | なし | `https://<mpk_ key>@<host>/...`。送信先は origin + `/v1/envelope`。未指定・空なら何も送らない |
 | `environment` | `string` | （必須） | 空文字不可、128 文字以内 |
-| `release` | `string` | なし | event の release |
+| `release` | `string` | なし | event の release。build 時に git の commit SHA を埋め込み（Vite の `define` や env など）、server 側 SDK と同じ値にすると両方の event が揃う |
 | `screenId` | `string` | なし | 全 event に `screen.id` tag として付く |
 | `route` | `string` | なし | `/form/follow/{token}` のような path template。`/` 始まりで `//` 始まりや `?` `#` を含まないこと。`request.url` が origin + この値になる |
 | `sampleRate` | `number` | `1` | 0〜1。event 単位のサンプリング |
