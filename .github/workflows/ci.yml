@@ -2,10 +2,9 @@ name: ci
 
 # @ah-monica/browser と @ah-monica/react を検査する。PR と main への push で回す。
 #
-# 公開契約（spec/v1）は vendoring したコピーに対してオフラインで検査する。
-# 公開 URL との差分検査はここに付けない。fork からの pull_request には外部
-# 通信の前提が揃わず、付けると外部 PR が全部落ちる。コピーの更新は手元で
-# bun run spec:sync して PR にする。
+# 公開契約（spec/v1）は vendoring したコピーに対して検査し、配信元
+# https://spec.monica.accelhack.net/v1/ と食い違っていたら落とす。
+# 直すのは bun run spec:sync でコピーを取り直して commit する。
 
 on:
   pull_request:
@@ -41,6 +40,9 @@ jobs:
 
       - name: tooling と公開契約のコピーを確認
         run: bun run check:tooling && bun run check:spec
+
+      - name: 公開契約のコピーが配信元と一致しているか
+        run: bun run spec:check-remote
 
       - name: Browser SDK を確認
         run: bun run check:browser
