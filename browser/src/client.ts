@@ -6,6 +6,8 @@ import {
   type MonicaExceptionValue,
   type MonicaFrame,
   type MonicaUser,
+  type PresenceState,
+  type PresenceStore,
 } from "@ah-monica/core";
 import { createBrowserTransport, warn } from "./transport.js";
 import type {
@@ -22,6 +24,9 @@ interface ScopeState {
   contexts: Record<string, unknown>;
   breadcrumbs: MonicaBreadcrumb[];
 }
+
+/** 稼働確認の状態を置く storage のキー。@ah-monica/next の client と同じ */
+const PRESENCE_STORAGE_KEY = "monica.presence";
 
 interface XhrMetadata {
   method: string;
@@ -74,6 +79,7 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
     flushIntervalMs: options.flushIntervalMs,
     now,
     sdk: { name: "@ah-monica/browser", version: "0.3.0" },
+    presence: { platform: "javascript", store: presenceStore(runtime), applySampleRate: true },
     async beforeSend(item, hint) {
       const processed = options.beforeSend ? await options.beforeSend(item, hint) : item;
       if (processed === null) return null;
@@ -302,6 +308,9 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
     return withDiagnostics(await core.close(timeoutMs));
   }
 
+  // ページ読み込み時の 1 回だけ判定する。開きっぱなしのタブ向けのタイマーは持たない
+  void core.checkPresence("start");
+
   if (options.autoCapture ?? true) {
     installGlobalHandlers();
     installXhrBreadcrumbs();
@@ -317,6 +326,39 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
     flush,
     close,
   };
+}
+
+/**
+ * interval を数え始めた時刻と、header で上書きされた interval / rate を端末に持つ。
+ * localStorage が使えなければ sessionStorage、どちらも無ければメモリ。
+ * 読めない・壊れた値は core が握り潰して「保存値なし」として扱う。
+ */
+function presenceStore(runtime: Window): PresenceStore {
+  const storage = usableStorage(runtime, "localStorage") ?? usableStorage(runtime, "sessionStorage");
+  let memory: PresenceState | undefined;
+  return {
+    load() {
+      if (!storage) return memory;
+      const raw = storage.getItem(PRESENCE_STORAGE_KEY);
+      return raw ? (JSON.parse(raw) as PresenceState) : undefined;
+    },
+    save(state) {
+      if (storage) storage.setItem(PRESENCE_STORAGE_KEY, JSON.stringify(state));
+      else memory = state;
+    },
+  };
+}
+
+function usableStorage(runtime: Window, name: "localStorage" | "sessionStorage"): Storage | undefined {
+  try {
+    // private mode や cookie 無効では、読むだけで throw するか setItem が throw する
+    const storage = runtime[name];
+    if (!storage) return undefined;
+    storage.setItem(PRESENCE_STORAGE_KEY, storage.getItem(PRESENCE_STORAGE_KEY) ?? "");
+    return storage;
+  } catch {
+    return undefined;
+  }
 }
 
 /** DSN が無いときの client。何も仕掛けず、何も送らない。 */

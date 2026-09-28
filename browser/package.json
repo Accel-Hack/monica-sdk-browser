@@ -42,7 +42,7 @@
     "directory": "browser"
   },
   "dependencies": {
-    "@ah-monica/core": "^0.3.0"
+    "@ah-monica/core": "file:../../monica-sdk-js/core"
   },
   "devDependencies": {
     "@types/bun": "^1.2.21",

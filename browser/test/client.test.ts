@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { FetchLike, MonicaItem } from "@ah-monica/core";
 import { createBrowserClient } from "../src/index.js";
 import { createBrowserTransport } from "../src/transport.js";
+import { presenceNotDue } from "./storage.js";
 
 class FakeXmlHttpRequest extends EventTarget {
   status = 200;
@@ -27,6 +28,7 @@ function createRuntime(
   runtime.XMLHttpRequest = FakeXmlHttpRequest;
   runtime.fetch = fetchImplementation;
   runtime.console = { error() {} };
+  runtime.localStorage = presenceNotDue();
   return runtime as unknown as Window & typeof globalThis;
 }
 

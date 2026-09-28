@@ -176,13 +176,20 @@ capture context を合成した関数を取れる。既存の Error Boundary か
 - page URL は origin のみ（`route` を指定したときだけ template を足す）、`screen.id`
   tag、`release`、stack frame（`node_modules` と拡張機能由来は `in_app: false`）
 - 同じエラーは `dedupeWindowMs` の窓で 1 回だけ送る
-- 送信中に起きたエラーと、送信そのものの失敗は自動収集へ戻さない
+- error の送信中に起きたエラーと、送信そのものの失敗は自動収集へ戻さない
 
 `console.error` の収集は既定 OFF で、`captureConsoleErrors: true` のときだけ拾う。
 user は自動検出せず、`setUser()` を呼んだ場合だけ event に入る。request body、
 Cookie、`Authorization` は収集しない。stack frame の URL からは user info・query・
 fragment を落とす。現在の pathname は token や個人識別子を含み得るので収集しない。
 アプリ固有の個人情報は `beforeSend` で allowlist 方式に落とす。
+
+## 稼働確認
+
+ページ読み込み時に、稼働確認の `client_report` を送る。前回 `202` を受けてから 1 日
+経っていない端末は送らない。前回の時刻は `localStorage`（使えなければ
+`sessionStorage`）のキー `monica.presence` に持つ。設定項目は無く、間隔と間引きは
+MONICA 側の project 設定で変わる。
 
 ## 送信結果と診断
 

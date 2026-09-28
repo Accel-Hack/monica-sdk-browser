@@ -1,11 +1,12 @@
-import type {
-  FetchLike,
-  MonicaEnvelope,
-  MonicaTransport,
-  TransportDiagnostic,
-  TransportDiagnosticHandler,
-  TransportIssue,
-  TransportResult,
+import {
+  readPresenceHeaders,
+  type FetchLike,
+  type MonicaEnvelope,
+  type MonicaTransport,
+  type TransportDiagnostic,
+  type TransportDiagnosticHandler,
+  type TransportIssue,
+  type TransportResult,
 } from "@ah-monica/core";
 
 interface BrowserTransportOptions {
@@ -88,7 +89,11 @@ export function createBrowserTransport(options: BrowserTransportOptions): Browse
     async send(envelope, outerSignal): Promise<TransportResult> {
       if (outerSignal?.aborted) return { accepted: false };
       if (unauthorized) return { accepted: false, status: 401 };
-      options.onSendingChange(true);
+      // 稼働確認だけの envelope の送信中は capture を止めない。ページ読み込み直後に
+      // 送るので、止めるとその間に起きた error を落とす。送信の失敗が error を呼び、
+      // その error がまた送信を呼ぶ循環は error の envelope でしか起きない
+      const gatesCapture = envelope.items.some((item) => item.type !== "client_report");
+      if (gatesCapture) options.onSendingChange(true);
       try {
         const body = await gzipEnvelope(envelope);
         for (let attempt = 0; attempt <= options.maxRetries; attempt += 1) {
@@ -110,7 +115,10 @@ export function createBrowserTransport(options: BrowserTransportOptions): Browse
               keepalive: true,
               signal: controller.signal,
             });
-            if (response.ok) return { accepted: true, status: response.status };
+            if (response.ok) {
+              const presence = readPresenceHeaders(response.headers);
+              return { accepted: true, status: response.status, ...(presence ? { presence } : {}) };
+            }
             if (response.status === 401) unauthorized = true;
             if (response.status !== 429 && response.status < 500) {
               // 4xx は従来どおり破棄する。変わるのは「body を読み、警告し、
@@ -141,7 +149,7 @@ export function createBrowserTransport(options: BrowserTransportOptions): Browse
       } catch {
         return { accepted: false };
       } finally {
-        options.onSendingChange(false);
+        if (gatesCapture) options.onSendingChange(false);
       }
     },
   };
