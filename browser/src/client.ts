@@ -9,7 +9,7 @@ import {
   type PresenceState,
   type PresenceStore,
 } from "@ah-monica/core";
-import { createBrowserTransport, warn } from "./transport.js";
+import { createBrowserTransport, parseDsn, warn } from "./transport.js";
 import type {
   BrowserCaptureContext,
   BrowserClientOptions,
@@ -24,9 +24,6 @@ interface ScopeState {
   contexts: Record<string, unknown>;
   breadcrumbs: MonicaBreadcrumb[];
 }
-
-/** 稼働確認の状態を置く storage のキー。@ah-monica/next の client と同じ */
-const PRESENCE_STORAGE_KEY = "monica.presence";
 
 interface XhrMetadata {
   method: string;
@@ -79,7 +76,11 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
     flushIntervalMs: options.flushIntervalMs,
     now,
     sdk: { name: "@ah-monica/browser", version: "0.3.0" },
-    presence: { platform: "javascript", store: presenceStore(runtime), applySampleRate: true },
+    presence: {
+      platform: "javascript",
+      store: presenceStore(runtime, `monica.presence.${parseDsn(options.dsn).key}`),
+      applySampleRate: true,
+    },
     async beforeSend(item, hint) {
       const processed = options.beforeSend ? await options.beforeSend(item, hint) : item;
       if (processed === null) return null;
@@ -330,31 +331,36 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
 
 /**
  * interval を数え始めた時刻と、header で上書きされた interval / rate を端末に持つ。
- * localStorage が使えなければ sessionStorage、どちらも無ければメモリ。
+ * キーは project ごと（`monica.presence.<API key>`）。同じ origin で別 project の client を
+ * 併用しても状態を共有しない。localStorage が使えなければ sessionStorage、どちらも無ければメモリ。
  * 読めない・壊れた値は core が握り潰して「保存値なし」として扱う。
  */
-function presenceStore(runtime: Window): PresenceStore {
-  const storage = usableStorage(runtime, "localStorage") ?? usableStorage(runtime, "sessionStorage");
+function presenceStore(runtime: Window, key: string): PresenceStore {
+  const storage = usableStorage(runtime, "localStorage", key) ?? usableStorage(runtime, "sessionStorage", key);
   let memory: PresenceState | undefined;
   return {
     load() {
       if (!storage) return memory;
-      const raw = storage.getItem(PRESENCE_STORAGE_KEY);
+      const raw = storage.getItem(key);
       return raw ? (JSON.parse(raw) as PresenceState) : undefined;
     },
     save(state) {
-      if (storage) storage.setItem(PRESENCE_STORAGE_KEY, JSON.stringify(state));
+      if (storage) storage.setItem(key, JSON.stringify(state));
       else memory = state;
     },
   };
 }
 
-function usableStorage(runtime: Window, name: "localStorage" | "sessionStorage"): Storage | undefined {
+function usableStorage(
+  runtime: Window,
+  name: "localStorage" | "sessionStorage",
+  key: string,
+): Storage | undefined {
   try {
     // private mode や cookie 無効では、読むだけで throw するか setItem が throw する
     const storage = runtime[name];
     if (!storage) return undefined;
-    storage.setItem(PRESENCE_STORAGE_KEY, storage.getItem(PRESENCE_STORAGE_KEY) ?? "");
+    storage.setItem(key, storage.getItem(key) ?? "");
     return storage;
   } catch {
     return undefined;

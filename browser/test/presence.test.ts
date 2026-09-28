@@ -4,7 +4,7 @@ import { createBrowserClient } from "../src/index.js";
 import { memoryStorage } from "./storage.js";
 
 const DSN = "https://mpk_public@ingest.example.test/1";
-const KEY = "monica.presence";
+const KEY = "monica.presence.mpk_public";
 const DAY = 86_400_000;
 const T0 = Date.parse("2026-09-01T00:00:00.000Z");
 
@@ -165,5 +165,49 @@ describe("稼働確認（client_report）", () => {
     expect(await client.captureMessage("during page load")).toBeString();
     await client.flush();
     expect(sent.map((envelope) => envelope.items.map((item) => item.type))).toEqual([["client_report"], ["error"]]);
+  });
+
+  test("storage のキーは DSN の API key ごとで、別 project の client と状態を共有しない", async () => {
+    const { sent, fetchImplementation } = ingest();
+    const localStorage = memoryStorage({ [KEY]: JSON.stringify({ intervalStartedAt: T0 }) });
+    const client = createBrowserClient({
+      dsn: "https://mpk_other@ingest.example.test/2",
+      environment: "production",
+      window: createRuntime(fetchImplementation, { localStorage }),
+      now: () => new Date(T0 + 1),
+      maxRetries: 0,
+    });
+    await client.flush();
+    expect(sent).toHaveLength(1);
+    expect(saved(localStorage)).toEqual({ intervalStartedAt: T0 });
+    expect(JSON.parse(localStorage.getItem("monica.presence.mpk_other")!)).toEqual({ intervalStartedAt: T0 + 1 });
+  });
+
+  test("error の envelope の送信中に起きた error は送らない", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let fetched!: () => void;
+    const started = new Promise<void>((resolve) => {
+      fetched = resolve;
+    });
+    const client = createBrowserClient({
+      dsn: DSN,
+      environment: "production",
+      window: createRuntime(async () => {
+        fetched();
+        await held;
+        return new Response(null, { status: 202 });
+      }, { localStorage: memoryStorage({ [KEY]: JSON.stringify({ intervalStartedAt: T0 }) }) }),
+      now: () => new Date(T0 + 1),
+      maxRetries: 0,
+    });
+    await client.captureMessage("first");
+    const flushing = client.flush();
+    await started;
+    expect(await client.captureMessage("during error send")).toBeNull();
+    release();
+    await flushing;
   });
 });

@@ -155,7 +155,7 @@ export function createBrowserTransport(options: BrowserTransportOptions): Browse
   };
 }
 
-function parseDsn(dsn: string): { endpoint: string; key: string } {
+export function parseDsn(dsn: string): { endpoint: string; key: string } {
   let url: URL;
   try {
     url = new URL(dsn);

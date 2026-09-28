@@ -188,7 +188,7 @@ fragment を落とす。現在の pathname は token や個人識別子を含み
 
 ページ読み込み時に、稼働確認の `client_report` を送る。前回 `202` を受けてから 1 日
 経っていない端末は送らない。前回の時刻は `localStorage`（使えなければ
-`sessionStorage`）のキー `monica.presence` に持つ。設定項目は無く、間隔と間引きは
+`sessionStorage`）のキー `monica.presence.<DSN の API key>` に持つ。設定項目は無く、間隔と間引きは
 MONICA 側の project 設定で変わる。
 
 ## 送信結果と診断
