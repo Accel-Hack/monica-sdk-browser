@@ -75,7 +75,7 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
     batchSize: options.batchSize,
     flushIntervalMs: options.flushIntervalMs,
     now,
-    sdk: { name: "@ah-monica/browser", version: "0.3.0" },
+    sdk: { name: "@ah-monica/browser", version: "0.4.0" },
     presence: {
       platform: "javascript",
       store: presenceStore(runtime, `monica.presence.${parseDsn(options.dsn).key}`),
