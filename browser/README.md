@@ -8,6 +8,11 @@
 `fetch` / `CompressionStream` / `AbortController` / `crypto.randomUUID` のある
 browser。型定義は TypeScript 4.8 以降で解決できる。
 
+ESM も IIFE（`monica.min.js`）も ES2022 を target に出力し、古い構文へ transpile しない。
+`??` / `?.` を含むので、読み込めるのは Chrome 80 / Android System WebView 80 以上。
+error の送信には `crypto.randomUUID` と `Array.prototype.at` も使うので、全機能が動くのは
+Chrome 92 / Android System WebView 92 以上。
+
 ## インストール
 
 ```sh
@@ -165,6 +170,8 @@ error が無い期間も MONICA が「この環境の SDK は動いている」�
 - WebView に埋め込む場合: 読み込みが 1 回きりの SPA でも、アプリが前面に戻って WebView が
   可視になるたびに判定する。DOM storage が無効（Android の `setDomStorageEnabled(false)` など）
   だとメモリに持つので、読み込みのたびに送る
+- 端末の WebView が 80 未満だと `monica.min.js` は構文エラーで読み込まれず、`Monica` が
+  未定義になる。ページの他の script は動くが、`Monica` を呼ぶ script はそこで止まる
 - MONICA 側の設定: `202` の応答 header `X-Monica-Presence-Interval-Ms`（間隔）と
   `X-Monica-Presence-Sample-Rate`（送る端末の割合）を保存し、次の判定から使う。既定は
   1 日、間引かない。SDK に設定項目は無く、MONICA の project 設定で変わる

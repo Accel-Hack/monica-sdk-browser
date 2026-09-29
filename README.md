@@ -7,7 +7,7 @@ browser 上で起きた JavaScript のエラーを MONICA の Ingest API（`POST
 
 | ディレクトリ | package | 用途・要求環境 |
 | --- | --- | --- |
-| [`browser/`](browser/) | `@ah-monica/browser` | 素の JavaScript を含む browser アプリ。ESM と `<script>` で読める IIFE を同じ package で配布する。`fetch` / `CompressionStream` / `AbortController` / `crypto.randomUUID` のある browser で動く。型は TypeScript 4.8 以降 |
+| [`browser/`](browser/) | `@ah-monica/browser` | 素の JavaScript を含む browser アプリ。ESM と `<script>` で読める IIFE を同じ package で配布する。`fetch` / `CompressionStream` / `AbortController` / `crypto.randomUUID` のある browser で動く。出力は ES2022 のままで transpile しないので、読み込みは Chrome 80 / Android System WebView 80 以上、全機能は 92 以上。型は TypeScript 4.8 以降 |
 | [`react/`](react/) | `@ah-monica/react` | React 18 / 19 向けの Error Boundary・Provider・hooks。`@ah-monica/browser` の上に載る |
 
 `@ah-monica/browser` は `@ah-monica/core`（`^0.4.0`）を npm 依存として使う。
@@ -206,6 +206,8 @@ error が無い期間も MONICA が「この環境の SDK は動いている」�
 - WebView に埋め込む場合: 読み込みが 1 回きりの SPA でも、アプリが前面に戻って WebView が
   可視になるたびに判定する。DOM storage が無効（Android の `setDomStorageEnabled(false)` など）
   だとメモリに持つので、読み込みのたびに送る
+- 端末の WebView が 80 未満だと `monica.min.js` は構文エラーで読み込まれず、`Monica` が
+  未定義になる。ページの他の script は動くが、`Monica` を呼ぶ script はそこで止まる
 - MONICA 側の設定: `202` の応答 header `X-Monica-Presence-Interval-Ms`（間隔）と
   `X-Monica-Presence-Sample-Rate`（送る端末の割合）を保存し、次の判定から使う。既定は
   1 日、間引かない。SDK に設定項目は無く、MONICA の project 設定で変わる
