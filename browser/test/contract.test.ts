@@ -10,10 +10,11 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
-import type { FetchLike } from "@ah-monica/core";
+import { PRESENCE, type FetchLike } from "@ah-monica/core";
 
 import { createBrowserClient } from "../src/index.js";
 import { createBrowserTransport } from "../src/transport.js";
+import { presenceNotDue } from "./storage.js";
 
 const specRoot = join(import.meta.dir, "../../spec/v1");
 const packageJson = JSON.parse(await readFile(join(import.meta.dir, "../package.json"), "utf8")) as {
@@ -49,6 +50,13 @@ type Transport = {
     retry_on_network_error: boolean;
     retry_after: { integer_seconds_only: boolean; max_seconds: number };
     backoff: { base_ms: number; factor: number; max_ms: number; jitter_min: number; jitter_max: number };
+  };
+  presence: {
+    interval_ms: number;
+    min_interval_ms: number;
+    sample_rate: number;
+    min_sample_rate: number;
+    override_headers: { interval_ms: string; sample_rate: string };
   };
 };
 
@@ -106,6 +114,7 @@ function createRuntime(fetchImplementation: FetchLike): Window & typeof globalTh
   runtime.XMLHttpRequest = FakeXmlHttpRequest;
   runtime.fetch = fetchImplementation;
   runtime.console = { error() {} };
+  runtime.localStorage = presenceNotDue();
   return runtime as unknown as Window & typeof globalThis;
 }
 
@@ -156,6 +165,35 @@ describe("browser SDK と公開契約", () => {
     // 1 リクエスト = 1 envelope の JSON を gzip したもの
     const envelope = await decodeEnvelope(request);
     expect(envelope.items).toHaveLength(1);
+    await client.close();
+  });
+
+  test("ページ読み込み時の client_report が単独の envelope で envelope.json を通る", async () => {
+    const { sent, fetchImplementation } = recorder();
+    const runtime = createRuntime(fetchImplementation);
+    // 稼働確認が due の端末（storage に前回の時刻が無い）
+    Object.assign(runtime, { localStorage: undefined });
+    const client = createBrowserClient({
+      dsn: DSN,
+      environment: "production",
+      release: "2026.09.08+1",
+      window: runtime,
+      maxRetries: 0,
+    });
+    await client.flush();
+
+    expect(sent).toHaveLength(1);
+    const envelope = await decodeEnvelope(sent[0]!);
+    expect(envelope.sdk).toEqual({ name: packageJson.name, version: packageJson.version });
+    expect(envelope.items).toEqual([{
+      type: "client_report",
+      timestamp: expect.any(String),
+      platform: "javascript",
+      environment: "production",
+      trigger: "start",
+      release: "2026.09.08+1",
+    }]);
+    expectValid(envelope);
     await client.close();
   });
 
@@ -526,4 +564,24 @@ describe("browser transport とレスポンスの契約", () => {
     expect(failed).toEqual({ accepted: true, status: 202 });
     expect(network).toHaveLength(2);
   }, SLOW);
+
+  test("presence の定数と header 名が transport.json のとおり", async () => {
+    expect({
+      intervalMs: transport.presence.interval_ms,
+      minIntervalMs: transport.presence.min_interval_ms,
+      sampleRate: transport.presence.sample_rate,
+      minSampleRate: transport.presence.min_sample_rate,
+      intervalHeader: transport.presence.override_headers.interval_ms,
+      sampleRateHeader: transport.presence.override_headers.sample_rate,
+    }).toEqual(PRESENCE);
+    // browser の transport が transport.json の header 名で受理の応答を読む
+    const result = await transportWith([() => new Response(null, {
+      status: 202,
+      headers: {
+        [transport.presence.override_headers.interval_ms]: "120000",
+        [transport.presence.override_headers.sample_rate]: "0.5",
+      },
+    })]).send(envelope);
+    expect(result).toEqual({ accepted: true, status: 202, presence: { intervalMs: "120000", sampleRate: "0.5" } });
+  });
 });

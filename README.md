@@ -10,7 +10,7 @@ browser 上で起きた JavaScript のエラーを MONICA の Ingest API（`POST
 | [`browser/`](browser/) | `@ah-monica/browser` | 素の JavaScript を含む browser アプリ。ESM と `<script>` で読める IIFE を同じ package で配布する。`fetch` / `CompressionStream` / `AbortController` / `crypto.randomUUID` のある browser で動く。型は TypeScript 4.8 以降 |
 | [`react/`](react/) | `@ah-monica/react` | React 18 / 19 向けの Error Boundary・Provider・hooks。`@ah-monica/browser` の上に載る |
 
-`@ah-monica/browser` は `@ah-monica/core`（`^0.3.0`）を npm 依存として使う。
+`@ah-monica/browser` は `@ah-monica/core`（`^0.4.0`）を npm 依存として使う。
 `@ah-monica/react` は `@ah-monica/browser` に依存し、`react` は peer 依存
 （`^18.0.0 || ^19.0.0`）。
 
@@ -176,13 +176,39 @@ capture context を合成した関数を取れる。既存の Error Boundary か
 - page URL は origin のみ（`route` を指定したときだけ template を足す）、`screen.id`
   tag、`release`、stack frame（`node_modules` と拡張機能由来は `in_app: false`）
 - 同じエラーは `dedupeWindowMs` の窓で 1 回だけ送る
-- 送信中に起きたエラーと、送信そのものの失敗は自動収集へ戻さない
+- error の送信中に起きたエラーと、送信そのものの失敗は自動収集へ戻さない
 
 `console.error` の収集は既定 OFF で、`captureConsoleErrors: true` のときだけ拾う。
 user は自動検出せず、`setUser()` を呼んだ場合だけ event に入る。request body、
 Cookie、`Authorization` は収集しない。stack frame の URL からは user info・query・
 fragment を落とす。現在の pathname は token や個人識別子を含み得るので収集しない。
 アプリ固有の個人情報は `beforeSend` で allowlist 方式に落とす。
+
+## 稼働確認
+
+error が無い期間も MONICA が「この環境の SDK は動いている」と分かるように、稼働確認を送る。
+
+- 送るもの: `client_report` item 1 件だけの envelope（`trigger: "start"`）。endpoint・
+  認証・再試行（`maxRetries`）は error と同じ
+- 送る時: `createBrowserClient()` / `init()` を呼んだとき（= ページ読み込み時）と、tab や
+  WebView が再び可視になったとき（`visibilitychange` で `visible`）に判定する。タイマーは
+  持たず、SPA の画面遷移では判定しない。`autoCapture: false` でも送る。`dsn` が無い client は
+  送らない
+- 送らない時: 直近 1 日に `202` を受けた envelope があるとき。error の envelope の `202`
+  でも期限が伸びる。判定した時点から次の 1 日を数えるので、送信に失敗しても次の判定まで
+  送り直さない
+- 状態の置き場所: `localStorage` のキー `monica.presence.<DSN の API key>` に JSON
+  （`intervalStartedAt` と、MONICA から届いた `intervalMs` / `sampleRate`）で持つ。
+  同じ origin の tab 同士は状態を共有し、DSN の API key が違う client 同士は共有しない
+- `localStorage` が使えない環境（private mode、site data のブロックなど）では
+  `sessionStorage`、それも使えなければメモリに持つ。`sessionStorage` なら tab ごと、
+  メモリならページ読み込みのたびに送る
+- WebView に埋め込む場合: 読み込みが 1 回きりの SPA でも、アプリが前面に戻って WebView が
+  可視になるたびに判定する。DOM storage が無効（Android の `setDomStorageEnabled(false)` など）
+  だとメモリに持つので、読み込みのたびに送る
+- MONICA 側の設定: `202` の応答 header `X-Monica-Presence-Interval-Ms`（間隔）と
+  `X-Monica-Presence-Sample-Rate`（送る端末の割合）を保存し、次の判定から使う。既定は
+  1 日、間引かない。SDK に設定項目は無く、MONICA の project 設定で変わる
 
 ## 送信結果と診断
 

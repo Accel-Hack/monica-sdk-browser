@@ -16,6 +16,7 @@ import type {
 import { createBrowserClient } from "../src/index.js";
 import { createBrowserTransport, type BrowserTransport } from "../src/transport.js";
 import type { BrowserClientOptions } from "../src/types.js";
+import { presenceNotDue } from "./storage.js";
 
 const DSN = "https://mpk_public@ingest.example.test/1";
 
@@ -99,6 +100,7 @@ function createRuntime(fetchImplementation: FetchLike): Window & typeof globalTh
   runtime.XMLHttpRequest = undefined;
   runtime.fetch = fetchImplementation;
   runtime.console = { error() {} };
+  runtime.localStorage = presenceNotDue();
   return runtime as unknown as Window & typeof globalThis;
 }
 
