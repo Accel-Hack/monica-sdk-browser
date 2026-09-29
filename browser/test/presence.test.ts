@@ -99,6 +99,46 @@ describe("稼働確認（client_report）", () => {
     expect(sent).toHaveLength(1);
   });
 
+  test("可視になったときも判定し、interval を過ぎていれば start を 1 通送る。hidden と close 後は見ない", async () => {
+    const { sent, fetchImplementation } = ingest();
+    const window = createRuntime(fetchImplementation, { localStorage: memoryStorage() });
+    const document = window.document as unknown as EventTarget & { visibilityState: string };
+    let at = T0;
+    // WebView に埋め込んだ SPA のように読み込みは 1 回きり。autoCapture に左右されない
+    const client = createBrowserClient({
+      dsn: DSN,
+      environment: "production",
+      window,
+      now: () => new Date(at),
+      maxRetries: 0,
+      autoCapture: false,
+    });
+    const becomes = async (state: string) => {
+      document.visibilityState = state;
+      document.dispatchEvent(new Event("visibilitychange"));
+      await client.flush();
+    };
+    await client.flush();
+    expect(sent).toHaveLength(1);
+
+    at = T0 + DAY - 1;
+    await becomes("visible");
+    expect(sent).toHaveLength(1);
+
+    at = T0 + DAY;
+    await becomes("hidden");
+    expect(sent).toHaveLength(1);
+    await becomes("visible");
+    expect(sent).toHaveLength(2);
+    expect(sent[1]!.items[0]).toMatchObject({ type: "client_report", trigger: "start" });
+
+    at = T0 + 2 * DAY;
+    await client.close();
+    document.visibilityState = "visible";
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(sent).toHaveLength(2);
+  });
+
   test("202 の header が保存されて次の判定に効き、壊れた header と header 無しの応答では保存値が残る", async () => {
     const { sent, fetchImplementation, respondWith } = ingest();
     const localStorage = memoryStorage();

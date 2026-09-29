@@ -309,7 +309,14 @@ export function createBrowserClient(options: BrowserClientOptions): MonicaBrowse
     return withDiagnostics(await core.close(timeoutMs));
   }
 
-  // ページ読み込み時の 1 回だけ判定する。開きっぱなしのタブ向けのタイマーは持たない
+  // ページ読み込み時と、tab や WebView が再び可視になったときに判定する。タイマーは持たない。
+  // WebView に埋め込んだ SPA は読み込みが 1 回きりなので、可視化でも見ないと start が止まる。
+  // interval 内なら core が送らないので、可視化のたびに送ることにはならない
+  const onPresenceVisible = () => {
+    if (runtime.document.visibilityState === "visible") void core.checkPresence("start");
+  };
+  runtime.document.addEventListener("visibilitychange", onPresenceVisible);
+  uninstallers.push(() => runtime.document.removeEventListener("visibilitychange", onPresenceVisible));
   void core.checkPresence("start");
 
   if (options.autoCapture ?? true) {

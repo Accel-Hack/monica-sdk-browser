@@ -190,9 +190,10 @@ error が無い期間も MONICA が「この環境の SDK は動いている」�
 
 - 送るもの: `client_report` item 1 件だけの envelope（`trigger: "start"`）。endpoint・
   認証・再試行（`maxRetries`）は error と同じ
-- 送る時: `createBrowserClient()` / `init()` を呼んだとき（= ページ読み込み時）に 1 回だけ
-  判定する。タイマーは持たず、tab の切り替え（`visibilitychange`）や SPA の画面遷移では
-  判定しない。`autoCapture: false` でも送る。`dsn` が無い client は送らない
+- 送る時: `createBrowserClient()` / `init()` を呼んだとき（= ページ読み込み時）と、tab や
+  WebView が再び可視になったとき（`visibilitychange` で `visible`）に判定する。タイマーは
+  持たず、SPA の画面遷移では判定しない。`autoCapture: false` でも送る。`dsn` が無い client は
+  送らない
 - 送らない時: 直近 1 日に `202` を受けた envelope があるとき。error の envelope の `202`
   でも期限が伸びる。判定した時点から次の 1 日を数えるので、送信に失敗しても次の判定まで
   送り直さない
@@ -202,6 +203,9 @@ error が無い期間も MONICA が「この環境の SDK は動いている」�
 - `localStorage` が使えない環境（private mode、site data のブロックなど）では
   `sessionStorage`、それも使えなければメモリに持つ。`sessionStorage` なら tab ごと、
   メモリならページ読み込みのたびに送る
+- WebView に埋め込む場合: 読み込みが 1 回きりの SPA でも、アプリが前面に戻って WebView が
+  可視になるたびに判定する。DOM storage が無効（Android の `setDomStorageEnabled(false)` など）
+  だとメモリに持つので、読み込みのたびに送る
 - MONICA 側の設定: `202` の応答 header `X-Monica-Presence-Interval-Ms`（間隔）と
   `X-Monica-Presence-Sample-Rate`（送る端末の割合）を保存し、次の判定から使う。既定は
   1 日、間引かない。SDK に設定項目は無く、MONICA の project 設定で変わる
