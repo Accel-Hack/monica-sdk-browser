@@ -12,9 +12,9 @@
     },
     "browser": {
       "name": "@ah-monica/browser",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
-        "@ah-monica/core": "file:../../monica-sdk-js/core",
+        "@ah-monica/core": "^0.4.0",
       },
       "devDependencies": {
         "@types/bun": "^1.2.21",
@@ -27,7 +27,7 @@
     },
     "react": {
       "name": "@ah-monica/react",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@ah-monica/browser": "0.1.1",
       },
@@ -46,6 +46,8 @@
   },
   "packages": {
     "@ah-monica/browser": ["@ah-monica/browser@workspace:browser"],
+
+    "@ah-monica/core": ["@ah-monica/core@0.4.0", "", {}, "sha512-aNSq446cFy5A7qMgV7zNjpmsLgu/7kSRxY47RBsbIHeJnh0BcBaTYSp8zhW+L4DtocNXJXwcDxMr65x226GZWg=="],
 
     "@ah-monica/react": ["@ah-monica/react@workspace:react"],
 
@@ -278,8 +280,6 @@
     "which": ["which@2.0.2", "", { "dependencies": { "isexe": "^2.0.0" }, "bin": { "node-which": "./bin/node-which" } }, "sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA=="],
 
     "wildcard": ["wildcard@2.0.1", "", {}, "sha512-CC1bOL87PIWSBhDcTrdeLo6eGT7mCFtrg0uIJtqJUFyK+eJnzl8A1niH56uu7KMa5XFrtiV+AQuHO3n7DsHnLQ=="],
-
-    "@ah-monica/browser/@ah-monica/core": ["@ah-monica/core@file:../monica-sdk-js/core", { "devDependencies": { "@types/bun": "^1.2.21", "typescript": "^5.9.2" } }],
 
     "terser/commander": ["commander@2.20.3", "", {}, "sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ=="],
   }
