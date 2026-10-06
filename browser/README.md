@@ -148,6 +148,23 @@ fragment を落とす。現在の pathname は token や個人識別子を含み
 診断に route が必要なら、`route: '/form/follow/{token}'` のように実値を含まない
 template を明示する。アプリ固有の個人情報は `beforeSend` で allowlist 方式に落とす。
 
+## Issue のまとめ方
+
+どのエラーを同じ Issue にまとめるかは MONICA 側で決まり、SDK は決めない。規則は
+[`spec/v1/grouping.md`](https://github.com/Accel-Hack/monica-sdk-browser/blob/main/spec/v1/grouping.md) にある。分かれ方が意外なときは、管理画面の
+Issue 詳細の「まとめ方」で、その Issue がどの値でまとめられたかを確かめる。
+
+この SDK に固有の点は次のとおり。
+
+- event は `platform: "javascript"` で送るので、MONICA は frame の関数名を見ずにファイルだけを
+  見る。同じ bundle の中で起きた同じ型のエラーは 1 つの Issue になりやすい
+- bundle のファイル名のハッシュと配信元のホスト名は MONICA が無視するので、deploy や配信元を
+  変えても同じエラーは同じ Issue のまま
+- `node_modules` の下と拡張機能（`chrome-extension:` / `moz-extension:` / `safari-extension:`）の
+  frame は `in_app: false` になる
+- 分けたいときは、発生した場所で専用の Error のサブクラスを投げるか、`fingerprint` を渡す。
+  `fingerprint` は既定の分け方を置き換えるので、どこで起きたかの区別も値に含める
+
 ## 稼働確認
 
 error が無い期間も MONICA が「この環境の SDK は動いている」と分かるように、稼働確認を送る。
